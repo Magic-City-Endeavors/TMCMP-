@@ -1,0 +1,12 @@
+name = "best-finds-daily-mcp"
+main = "worker.js"
+compatibility_date = "2025-10-01"
+
+# Briefing data bindings (configured in the Cloudflare dashboard for the
+# deployed Worker; declared here for wrangler deploys):
+# [[kv_namespaces]]
+# binding = "BRIEFING_KV"   # same namespace the feed Worker writes key "briefing" to
+# id = "<feed KV namespace id>"
+# [[services]]
+# binding = "FEED_SERVICE"  # service binding to the feed Worker (nameless-dust-a1fc)
+# service = "nameless-dust-a1fc"

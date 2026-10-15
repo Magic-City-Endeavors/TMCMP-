@@ -1,0 +1,1 @@
+{"description":"Best Finds Daily MCP server (Cloudflare Worker, Streamable HTTP, MCP spec 2025-11-25)","main":"worker.js","name":"best-finds-daily-mcp-server","private":true,"scripts":{"deploy":"wrangler deploy","dev":"wrangler dev","test":"node test.mjs"},"type":"module","version":"1.0.0"}
