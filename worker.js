@@ -34,6 +34,11 @@
  *   - CORS is wide open (Access-Control-Allow-Origin: *) because every
  *     datum this server serves is already public marketing copy, and
  *     browser-based MCP clients and test pages need it to call the tools.
+ *   - GET /prices serves the public Amazon price map from BRIEFING_KV
+ *     (key "prices:amazon", written out-of-band by
+ *     scripts/update-prices.py) so hub pages can refresh the prices they
+ *     display at page-open instead of relying on baked-in figures. See
+ *     PRICE-PIPE.md for the whole pipe.
  */
 
 import { TEMU_TOP5, DEAL_HUBS, DEALS, FALLBACK_BRIEFING } from "./data.js";
@@ -248,6 +253,29 @@ const TOOL_HANDLERS = {
 };
 
 // ---------------------------------------------------------------------------
+// Live price pipe — GET /prices (see PRICE-PIPE.md)
+// ---------------------------------------------------------------------------
+
+/** Serve the Amazon price map stored in BRIEFING_KV under "prices:amazon".
+ *  The map is { ASIN: { price, title, verified_at, source, verified, was } }
+ *  and is written by scripts/update-prices.py; this Worker only reads it.
+ *  An absent or unreadable map serves as {} with HTTP 200 on purpose: hub
+ *  pages read "no live data" as "keep the baked-in prices", so this
+ *  endpoint can never blank or zero out a page's prices. */
+async function handlePrices(env) {
+  let map = {};
+  try {
+    if (env && env.BRIEFING_KV && typeof env.BRIEFING_KV.get === "function") {
+      const stored = await env.BRIEFING_KV.get("prices:amazon", "json");
+      if (stored && typeof stored === "object" && !Array.isArray(stored)) map = stored;
+    }
+  } catch (err) {
+    // Fall through with the empty map — see the note above.
+  }
+  return jsonResponse(map, 200, { "Cache-Control": "public, max-age=300" });
+}
+
+// ---------------------------------------------------------------------------
 // JSON-RPC plumbing
 // ---------------------------------------------------------------------------
 
@@ -343,6 +371,11 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
+    // GET /prices: the live price map for hub pages (see PRICE-PIPE.md).
+    if (request.method === "GET" && new URL(request.url).pathname.replace(/\/+$/, "") === "/prices") {
+      return handlePrices(env);
+    }
+
     // GET: endpoint info (see transport notes in the header comment).
     if (request.method === "GET") {
       return jsonResponse({
@@ -351,6 +384,7 @@ export default {
         protocolVersion: PROTOCOL_VERSION,
         transport: "streamable-http",
         tools: TOOLS.map((t) => t.name),
+        prices: "/prices",
         description:
           "Best Finds Daily MCP server — live deals tools for Alexa+ and any MCP client. POST JSON-RPC 2.0 messages to this URL.",
       });

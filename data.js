@@ -7,55 +7,59 @@
  */
 
 // ---------------------------------------------------------------------------
-// Today's Temu Top 5 (snapshot of the daily drop, Oct 14, 2026).
+// Today's Temu Top 5 (snapshot of the daily drop, Oct 16, 2026 — verified
+// live on Greg's signed-in Temu storefront that day; names, prices and sold
+// counts copied from the Oct 16 drop records, never invented. Per-product
+// links were not captured for this drop, so every item points at the
+// storefront, which is Greg's canonical Temu entry point.)
 // In production this snapshot is refreshed by the daily Temu drop flow;
 // it is embedded here so the MCP server has no storage dependency.
 // ---------------------------------------------------------------------------
 export const TEMU_TOP5 = {
-  date: "2026-10-14",
-  dateLabel: "Oct 14, 2026",
+  date: "2026-10-16",
+  dateLabel: "Oct 16, 2026",
   promoCode: "aln767451",
   storefront: "https://temu.to/k/p3e7nhnlelp",
   items: [
     {
-      name: "Clothes drying rack",
-      price: 17.36,
-      priceLabel: "$17.36",
-      sold: "90K sold",
-      url: "https://temu.to/k/psspl6600xh",
+      name: "Solar Outdoor Lights",
+      price: 6.9,
+      priceLabel: "$6.90",
+      sold: "100K sold",
+      url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Men's crew socks (6-pack)",
-      price: 3.57,
-      priceLabel: "$3.57",
-      sold: "81K sold",
-      url: "https://temu.to/k/py07bwjzhn7",
+      name: "Electric Grooming Kit",
+      price: 10.37,
+      priceLabel: "$10.37",
+      sold: "100K sold",
+      url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Retractable 3-in-1 cable (100W)",
-      price: 6.56,
-      priceLabel: "$6.56",
-      sold: "57K sold",
-      url: "https://temu.to/k/pjnxvnsnrch",
+      name: "Impact Socket Set",
+      price: 9.63,
+      priceLabel: "$9.63",
+      sold: "89K sold",
+      url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Double-zipper food storage bags",
-      price: 6.89,
-      priceLabel: "$6.89",
-      sold: "54K sold",
-      url: "https://temu.to/k/p38cfw6g4c5",
+      name: "Wok Set",
+      price: 19.99,
+      priceLabel: "$19.99",
+      sold: "70K sold",
+      url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "LED desk lamp",
-      price: 11.58,
-      priceLabel: "$11.58",
-      sold: "47K sold",
-      url: "https://temu.to/k/psspl6600xh",
+      name: "Super Absorbent Drying Mat",
+      price: 4.16,
+      priceLabel: "$4.16",
+      sold: "66K sold",
+      url: "https://temu.to/k/p3e7nhnlelp",
     },
   ],
   // Required disclosure line, verbatim.
   disclosure:
-    "Prices as of Oct 14, 2026; extra 30% off with code aln767451. #ad — I may earn a commission.",
+    "Prices as of Oct 16, 2026; extra 30% off with code aln767451. #ad — I may earn a commission.",
 };
 
 // ---------------------------------------------------------------------------
@@ -110,30 +114,41 @@ export const DEAL_HUBS = [
 // mapped from Greg's screenshots, Oct 6, 2026). Names, prices and savings
 // are as mapped; `price` is the numeric form of `priceLabel` for filtering.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// PRICE AUDIT — Oct 16, 2026 (Rainforest API live verification):
+// 8 entries below were re-verified live and corrected — Blink Mini 2K+,
+// tarte mascara, Keurig K-Supreme, Tineco Floor ONE, Stanley Quencher,
+// iRobot Roomba, Ensure Max Protein, Kiehl's Ultra Facial Cream. Every one
+// had risen back to its list/typical price: the Oct 6 Prime Big Deal prices
+// are over. The remaining 32 entries still carry Oct 6, 2026 deal-window
+// prices and must be treated as STALE until re-verified (the audit was cut
+// short when Rainforest suspended the trial account mid-run — see
+// ~/workspace/goals/amazon-finds-daily-drops/hidden_files/amazon-price-audit-20261016.md).
+// ---------------------------------------------------------------------------
 export const DEALS = [
   {
     name: "Blink Mini 2K+ (2-pack, white)",
-    price: 27.99,
-    priceLabel: "$27.99",
-    savingsLabel: "60% off",
+    price: 69.99,
+    priceLabel: "$69.99",
+    savingsLabel: "no discount vs list",
     referenceLabel: "Typ $69.99",
     category: "smart home",
     keywords: ["blink", "camera", "security", "mini", "smart home"],
   },
   {
     name: "tarte tartelette mascara",
-    price: 12.6,
-    priceLabel: "$12.60",
-    savingsLabel: "55% off",
+    price: 28,
+    priceLabel: "$28.00",
+    savingsLabel: "no discount vs list",
     referenceLabel: "List $28.00",
     category: "beauty",
     keywords: ["tarte", "mascara", "makeup", "beauty", "cosmetics"],
   },
   {
     name: "Keurig K-Supreme single-serve coffee maker",
-    price: 94.99,
-    priceLabel: "$94.99",
-    savingsLabel: "$75 off",
+    price: 169.99,
+    priceLabel: "$169.99",
+    savingsLabel: "no discount vs list",
     referenceLabel: "List $169.99",
     category: "kitchen",
     keywords: ["keurig", "coffee", "coffee maker", "kitchen", "k-cup"],
@@ -176,9 +191,9 @@ export const DEALS = [
   },
   {
     name: "Stanley Quencher tumbler",
-    price: 20.89,
-    priceLabel: "$20.89",
-    savingsLabel: "48% off",
+    price: 40,
+    priceLabel: "$40.00",
+    savingsLabel: "no discount vs list",
     referenceLabel: "List $40.00",
     category: "drinkware",
     keywords: ["stanley", "quencher", "tumbler", "cup", "drinkware"],
@@ -203,9 +218,9 @@ export const DEALS = [
   },
   {
     name: "Tineco Floor ONE wet/dry vacuum",
-    price: 349.9,
-    priceLabel: "$349.90",
-    savingsLabel: "$249 off",
+    price: 599,
+    priceLabel: "$599.00",
+    savingsLabel: "no discount vs list",
     referenceLabel: "List $599.00",
     category: "home",
     keywords: ["tineco", "floor one", "wet dry vacuum", "vacuum", "mop", "cleaning", "home"],
@@ -311,27 +326,27 @@ export const DEALS = [
   },
   {
     name: "iRobot Roomba",
-    price: 398.99,
-    priceLabel: "$398.99",
-    savingsLabel: "$401 off",
+    price: 636,
+    priceLabel: "$636.00",
+    savingsLabel: "$163 off",
     referenceLabel: "List $799.99",
     category: "home",
     keywords: ["irobot", "roomba", "robot vacuum", "vacuum", "cleaning", "home"],
   },
   {
     name: "Ensure Max Protein",
-    price: 16.78,
-    priceLabel: "$16.78",
-    savingsLabel: "40% off",
+    price: 27.97,
+    priceLabel: "$27.97",
+    savingsLabel: "no discount vs list",
     referenceLabel: "Typ $27.97",
     category: "health",
     keywords: ["ensure", "max protein", "protein shake", "protein", "health", "nutrition"],
   },
   {
     name: "Kiehl's Ultra Facial Cream",
-    price: 36.0,
-    priceLabel: "$36.00",
-    savingsLabel: "50% off",
+    price: 72,
+    priceLabel: "$72.00",
+    savingsLabel: "no discount vs list",
     referenceLabel: "Typ $72.00",
     category: "beauty",
     keywords: ["kiehl's", "kiehls", "facial cream", "moisturizer", "skincare", "beauty"],

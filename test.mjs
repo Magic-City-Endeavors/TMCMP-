@@ -131,8 +131,8 @@ function toolText(result) {
 {
   const result = await callTool(5, "get_temu_top5");
   const text = toolText(result);
-  check("get_temu_top5: all 5 items present", ["Clothes drying rack", "crew socks", "Retractable 3-in-1 cable", "food storage bags", "LED desk lamp"].every((s) => text.includes(s)));
-  check("get_temu_top5: promo code + disclosure line", text.includes("Prices as of Oct 14, 2026; extra 30% off with code aln767451. #ad — I may earn a commission."));
+  check("get_temu_top5: all 5 items present", ["Solar Outdoor Lights", "Electric Grooming Kit", "Impact Socket Set", "Wok Set", "Super Absorbent Drying Mat"].every((s) => text.includes(s)));
+  check("get_temu_top5: promo code + disclosure line", text.includes("Prices as of Oct 16, 2026; extra 30% off with code aln767451. #ad — I may earn a commission."));
   check("get_temu_top5: storefront link", text.includes("https://temu.to/k/p3e7nhnlelp"));
 }
 
@@ -166,7 +166,7 @@ function toolText(result) {
 {
   const result = await callTool(8, "search_deals", { max_price: 50 });
   const text = toolText(result);
-  check("search_deals max_price 50: includes Stanley tumbler $20.89", text.includes("Stanley Quencher tumbler") && text.includes("$20.89"));
+  check("search_deals max_price 50: includes Stanley tumbler $40.00", text.includes("Stanley Quencher tumbler") && text.includes("$40.00"));
   check("search_deals max_price 50: excludes Bose ($169.00)", !text.includes("Bose"));
 }
 
