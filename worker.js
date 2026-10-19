@@ -39,6 +39,10 @@
  *     scripts/update-prices.py) so hub pages can refresh the prices they
  *     display at page-open instead of relying on baked-in figures. See
  *     PRICE-PIPE.md for the whole pipe.
+ *   - The same endpoint doubles as the HTTPS endpoint for the "Best Finds
+ *     Daily for Alexa+" custom skill: POST bodies carrying an Alexa
+ *     Skills Kit envelope (`request.type`) are answered by the ASK
+ *     adapter below, reusing the same tool logic and verified data.
  */
 
 import { TEMU_TOP5, DEAL_HUBS, DEALS, FALLBACK_BRIEFING } from "./data.js";
@@ -208,6 +212,26 @@ function toolGetDealHubs() {
   return textResult(lines.join("\n"));
 }
 
+/** Shared verified-deal matcher — the single source of truth for both the
+ *  search_deals MCP tool and the Alexa (ASK) adapter below. Returns the
+ *  matching entries from DEALS (held entries with `price: null` never
+ *  match: no verified price, never served as a deal). */
+function findDeals(rawQuery, maxPrice) {
+  const query = typeof rawQuery === "string" ? rawQuery.trim().toLowerCase() : "";
+  // Every query word must match somewhere in the deal's name, category or
+  // keyword list — simple, predictable AND-matching for a small verified set.
+  const words = query.split(/\s+/).filter(Boolean);
+  return DEALS.filter((deal) => {
+    // Held entries (price: null) have no verified price and are never served
+    // as deals, regardless of any descriptive fields retained in the data.
+    if (typeof deal.price !== "number") return false;
+    if (maxPrice !== null && deal.price > maxPrice) return false;
+    if (!words.length) return true;
+    const haystack = [deal.name, deal.category, ...deal.keywords].join(" ").toLowerCase();
+    return words.every((w) => haystack.includes(w));
+  });
+}
+
 function toolSearchDeals(args) {
   const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
   const maxPrice =
@@ -215,15 +239,7 @@ function toolSearchDeals(args) {
       ? args.max_price
       : null;
 
-  // Every query word must match somewhere in the deal's name, category or
-  // keyword list — simple, predictable AND-matching for a small verified set.
-  const words = query.split(/\s+/).filter(Boolean);
-  const matches = DEALS.filter((deal) => {
-    if (maxPrice !== null && deal.price > maxPrice) return false;
-    if (!words.length) return true;
-    const haystack = [deal.name, deal.category, ...deal.keywords].join(" ").toLowerCase();
-    return words.every((w) => haystack.includes(w));
-  });
+  const matches = findDeals(args.query, maxPrice);
 
   if (!matches.length) {
     const scope = [
@@ -251,6 +267,253 @@ const TOOL_HANDLERS = {
   get_deal_hubs: toolGetDealHubs,
   search_deals: toolSearchDeals,
 };
+
+// ---------------------------------------------------------------------------
+// Alexa Skills Kit (ASK) adapter
+// ---------------------------------------------------------------------------
+// The "Best Finds Daily for Alexa+" custom skill points its HTTPS endpoint
+// at this same Worker URL. Alexa posts ASK envelopes (LaunchRequest /
+// IntentRequest), not JSON-RPC — without this adapter the skill answered
+// every request with "No Content" (found in the live console test,
+// Oct 19, 2026). On POST, any body carrying `request.type` is handled here
+// instead of by the JSON-RPC dispatcher; everything else is untouched.
+// Speech quotes only the same verified data the tools serve (verified-only
+// deals via findDeals, the embedded Temu Top 5 snapshot); URLs are never
+// spoken — they ride in the Simple card.
+
+const ASK_REPROMPT =
+  "Ask me for today's finds, today's top find, the Temu Top 5, deals under a budget, or Greg's deal hubs.";
+const ASK_QUESTIONS =
+  "You can ask: what are today's finds? What's today's top find? What are today's Temu finds? Or find me smart home deals under fifty dollars. You can also ask where to shop all of Greg's hubs, or what's the promo code.";
+
+function askResponse({ text, cardTitle, cardContent, reprompt, endSession = false }) {
+  const response = {
+    outputSpeech: { type: "PlainText", text },
+    shouldEndSession: endSession,
+  };
+  if (cardTitle) {
+    response.card = { type: "Simple", title: cardTitle, content: cardContent || text };
+  }
+  if (!endSession) {
+    response.reprompt = {
+      outputSpeech: { type: "PlainText", text: reprompt || ASK_REPROMPT },
+    };
+  }
+  return { version: "1.0", sessionAttributes: {}, response };
+}
+
+/** Strip URLs and collapse whitespace for speech, then trim to a speakable
+ *  length at a sentence boundary where possible. */
+function toSpeakable(text, max = 750) {
+  const clean = String(text)
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max);
+  const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  return (stop > 200 ? cut.slice(0, stop + 1) : cut).trim();
+}
+
+function topFindSpeech() {
+  const item = TEMU_TOP5.items[0];
+  return (
+    `Today's top find is the ${item.name} at ${item.priceLabel} — ${item.sold}. ` +
+    `Use Greg's code ${TEMU_TOP5.promoCode} at the Temu storefront for an extra thirty percent off.`
+  );
+}
+
+const NUMBER_WORDS = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7,
+  eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13,
+  fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18,
+  nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60,
+  seventy: 70, eighty: 80, ninety: 90,
+};
+
+/** Parse a spoken number phrase ("twenty five", "one hundred", "a hundred",
+ *  "fifty") into a value; returns null when any token is not a number word. */
+function numberWordsToValue(tokens) {
+  let current = 0;
+  let seen = false;
+  for (const token of tokens) {
+    if (token === "a" || token === "an") {
+      if (!seen) { current = 1; seen = true; }
+      continue;
+    }
+    if (!(token in NUMBER_WORDS)) return null;
+    seen = true;
+    const value = NUMBER_WORDS[token];
+    if (value === 100) current = (current || 1) * 100;
+    else current += value;
+  }
+  return seen && current > 0 ? current : null;
+}
+
+/** Split a spoken search slot value into { query, maxPrice }, extracting a
+ *  budget tail such as "under $50", "under 24.99 dollars" or "under
+ *  twenty-five dollars" when present. Non-number tails ("under the stairs")
+ *  are left in the query untouched. */
+function parseSpokenSearch(rawQuery) {
+  let query = String(rawQuery || "").trim();
+  let maxPrice = null;
+
+  const digitMatch = query.match(
+    /\b(?:under|below|less than)\s+\$?(\d+(?:\.\d{1,2})?)\s*(?:dollars?|bucks)?\b/i
+  );
+  if (digitMatch) {
+    maxPrice = parseFloat(digitMatch[1]);
+    query = (query.slice(0, digitMatch.index) + query.slice(digitMatch.index + digitMatch[0].length)).trim();
+  } else {
+    const wordMatch =
+      query.match(/\b(?:under|below|less than)\s+([a-z][a-z\s-]*?)\s*(?:dollars?|bucks)\b/i) ||
+      query.match(/\b(?:under|below|less than)\s+([a-z][a-z\s-]*)$/i);
+    if (wordMatch) {
+      const tokens = wordMatch[1].toLowerCase().split(/[\s-]+/).filter(Boolean);
+      const value = numberWordsToValue(tokens);
+      if (value !== null) {
+        maxPrice = value;
+        query = (query.slice(0, wordMatch.index) + query.slice(wordMatch.index + wordMatch[0].length)).trim();
+      }
+    }
+  }
+
+  query = query
+    .replace(/\s+/g, " ")
+    .replace(/^(deals?|finds?)\s+/i, "")
+    .replace(/\s+(deals?|finds?)$/i, "")
+    .trim();
+  return { query, maxPrice };
+}
+
+async function handleAskRequest(body, env) {
+  const request = body.request || {};
+
+  if (request.type === "SessionEndedRequest") {
+    return { version: "1.0", sessionAttributes: {}, response: {} };
+  }
+
+  if (request.type === "LaunchRequest") {
+    const item = TEMU_TOP5.items[0];
+    return askResponse({
+      text:
+        `Welcome to Best Finds Daily! ${topFindSpeech()} ` +
+        "Ask me for today's finds, the Temu Top 5, deals under a budget, or where to shop all of Greg's hubs.",
+      cardTitle: "Today's top find",
+      cardContent: `${item.name} — ${item.priceLabel} (${item.sold})\n${item.url}\n\nCode ${TEMU_TOP5.promoCode} for an extra 30% off. #ad — I may earn a commission.`,
+    });
+  }
+
+  if (request.type === "IntentRequest") {
+    const intentName = request.intent && request.intent.name;
+
+    switch (intentName) {
+      case "TodaysBriefingIntent": {
+        const result = await toolGetDailyBriefing({}, env);
+        const fullText = (result.content || []).map((c) => c.text).join("\n");
+        return askResponse({
+          text: toSpeakable(fullText),
+          cardTitle: "Best Finds Daily — today's briefing",
+          cardContent: toSpeakable(fullText, 6000),
+        });
+      }
+
+      case "TopFindIntent": {
+        const item = TEMU_TOP5.items[0];
+        return askResponse({
+          text: topFindSpeech(),
+          cardTitle: "Today's top find",
+          cardContent: `${item.name} — ${item.priceLabel} (${item.sold})\n${item.url}\n\nCode ${TEMU_TOP5.promoCode} for an extra 30% off. #ad — I may earn a commission.`,
+        });
+      }
+
+      case "TemuTopFiveIntent": {
+        const ordinals = ["Number one", "Number two", "Number three", "Number four", "Number five"];
+        const spoken = TEMU_TOP5.items
+          .map((item, i) => `${ordinals[i]}: ${item.name}, ${item.priceLabel}.`)
+          .join(" ");
+        const cardText = (toolGetTemuTop5().content || []).map((c) => c.text).join("\n");
+        return askResponse({
+          text:
+            `Today's Temu Top 5 for ${TEMU_TOP5.dateLabel}. ${spoken} ` +
+            `Use Greg's code ${TEMU_TOP5.promoCode} at checkout for an extra thirty percent off.`,
+          cardTitle: "Today's Temu Top 5",
+          cardContent: cardText,
+        });
+      }
+
+      case "SearchDealsIntent": {
+        const slots = (request.intent && request.intent.slots) || {};
+        const rawQuery = (slots.query && slots.query.value) || "";
+        const { query, maxPrice } = parseSpokenSearch(rawQuery);
+        const matches = findDeals(query, maxPrice);
+        const dealsHubUrl = DEAL_HUBS.find((h) => h.name === "Deals Hub")?.url || "";
+        if (!matches.length) {
+          const scope = [
+            query && `matching "${query}"`,
+            maxPrice !== null && `under $${maxPrice}`,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          return askResponse({
+            text:
+              `I couldn't find any verified deals ${scope} right now. ` +
+              "Try a broader keyword or a higher budget — or ask me for today's Temu Top 5.",
+            cardTitle: "No verified deals found",
+            cardContent: `No verified deals ${scope} in the current Deals Hub set.\nBrowse everything: ${dealsHubUrl}`,
+          });
+        }
+        const spoken = matches
+          .map((deal) => `${deal.name}, ${deal.priceLabel}`)
+          .join("; ");
+        const cardLines = matches.map(
+          (deal) => `- ${deal.name} — ${deal.priceLabel} (${deal.savingsLabel}, ${deal.referenceLabel})`
+        );
+        return askResponse({
+          text:
+            `I found ${matches.length} verified deal${matches.length === 1 ? "" : "s"}: ${spoken}. ` +
+            "I've put the details on a card for you.",
+          cardTitle: "Verified deals",
+          cardContent: `${cardLines.join("\n")}\n\nDeals Hub: ${dealsHubUrl}\nPrices as verified in the Deals Hub mapping. #ad — I may earn a commission.`,
+        });
+      }
+
+      case "DealHubsIntent": {
+        const cardText = (toolGetDealHubs().content || []).map((c) => c.text).join("\n");
+        return askResponse({
+          text:
+            "You can shop all of Greg's hubs from the Master hub: Amazon Finds, the Deals Hub, " +
+            "Temu Finds, the Business Growth Hub, his blog, the Telegram deals channel, and the " +
+            `Best Finds Daily newsletter. And the Temu promo code is ${TEMU_TOP5.promoCode}, ` +
+            "for an extra thirty percent off.",
+          cardTitle: "Best Finds with Greg — hub directory",
+          cardContent: cardText,
+        });
+      }
+
+      case "HelloWorldIntent":
+        return askResponse({ text: `Hello! ${topFindSpeech()}` });
+
+      case "AMAZON.NavigateHomeIntent":
+        return askResponse({ text: topFindSpeech() });
+
+      case "AMAZON.HelpIntent":
+        return askResponse({ text: ASK_QUESTIONS });
+
+      case "AMAZON.StopIntent":
+      case "AMAZON.CancelIntent":
+        return askResponse({ text: "Goodbye.", endSession: true });
+
+      default:
+        return askResponse({
+          text: `Sorry, I didn't catch that. ${ASK_QUESTIONS}`,
+        });
+    }
+  }
+
+  // Unknown ASK request type: answer with the fallback rather than an error.
+  return askResponse({ text: `Sorry, I didn't catch that. ${ASK_QUESTIONS}` });
+}
 
 // ---------------------------------------------------------------------------
 // Live price pipe — GET /prices (see PRICE-PIPE.md)
@@ -413,6 +676,19 @@ export default {
       body = await request.json();
     } catch {
       return jsonResponse(rpcError(null, -32700, "Parse error: request body is not valid JSON"), 400);
+    }
+
+    // Alexa Skills Kit (ASK) adapter: an ASK envelope (a non-array body
+    // carrying `request.type`) is answered by the adapter instead of the
+    // JSON-RPC dispatcher. Non-ASK bodies flow on unchanged.
+    if (
+      body &&
+      typeof body === "object" &&
+      !Array.isArray(body) &&
+      body.request &&
+      typeof body.request.type === "string"
+    ) {
+      return jsonResponse(await handleAskRequest(body, env));
     }
 
     // Batch requests: process each message, return the non-notification
