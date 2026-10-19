@@ -14,6 +14,7 @@
  */
 
 import worker from "./worker.js";
+import { TEMU_TOP5 } from "./data.js";
 
 const ENDPOINT = "https://mcp.bestfindsdaily.example/mcp";
 
@@ -159,7 +160,7 @@ function toolText(result) {
 {
   const result = await callTool(7, "search_deals", { query: "headphones" });
   const text = toolText(result);
-  check("search_deals 'headphones': finds Bose at mapped price", text.includes("Bose QuietComfort headphones") && text.includes("$169.00") && text.includes("$190 off"));
+  check("search_deals 'headphones': verified-only — no Bose or stale price", text.includes("No verified deals") && !text.includes("Bose") && !text.includes("$169.00") && !text.includes("$190 off"));
 }
 
 // --- search_deals: budget ------------------------------------------------------------------
@@ -167,7 +168,7 @@ function toolText(result) {
   const result = await callTool(8, "search_deals", { max_price: 50 });
   const text = toolText(result);
   check("search_deals max_price 50: includes Stanley tumbler $40.00", text.includes("Stanley Quencher tumbler") && text.includes("$40.00"));
-  check("search_deals max_price 50: excludes Bose ($169.00)", !text.includes("Bose"));
+  check("search_deals max_price 50: excludes unverified Bose entry", !text.includes("Bose"));
 }
 
 // --- unknown method ---------------------------------------------------------------------------
@@ -180,6 +181,194 @@ function toolText(result) {
 {
   const { res } = await rpc({ jsonrpc: "2.0", id: 10, method: "ping" }, "not-a-real-session");
   check("unknown session id: HTTP 404", res.status === 404, `got ${res.status}`);
+}
+
+// ===========================================================================
+// Alexa Skills Kit (ASK) adapter — the custom skill posts ASK envelopes to
+// the same endpoint. Each case asserts non-empty speech and data grounding.
+// ===========================================================================
+
+async function ask(payload) {
+  const res = await worker.fetch(
+    new Request(ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  );
+  let body = null;
+  try {
+    body = await res.json();
+  } catch {
+    /* leave null; checks fail loudly */
+  }
+  return { res, body };
+}
+function askEnvelope(request) {
+  return {
+    version: "1.0",
+    session: {
+      new: false,
+      sessionId: "amzn1.echo-api.session.test",
+      application: { applicationId: "amzn1.ask.skill.18480163-685a-4b01-8c1b-5951b6fda33b" },
+      user: { userId: "amzn1.ask.account.test" },
+    },
+    context: {},
+    request,
+  };
+}
+function intentEnvelope(name, slots) {
+  const intent = { name, confirmationStatus: "NONE" };
+  if (slots) intent.slots = slots;
+  return askEnvelope({
+    type: "IntentRequest",
+    requestId: "amzn1.echo-api.request.test",
+    timestamp: "2026-10-19T13:00:00Z",
+    locale: "en-US",
+    intent,
+  });
+}
+function speechOf(body) {
+  return body?.response?.outputSpeech?.text || "";
+}
+
+const topItem = TEMU_TOP5.items[0];
+
+// --- LaunchRequest ----------------------------------------------------------------
+{
+  const { res, body } = await ask(
+    askEnvelope({ type: "LaunchRequest", requestId: "r-launch", timestamp: "2026-10-19T13:00:00Z", locale: "en-US" })
+  );
+  const speech = speechOf(body);
+  check("ASK launch: HTTP 200 + version 1.0", res.status === 200 && body?.version === "1.0");
+  check("ASK launch: speech names today's top find + verified price", speech.includes(topItem.name) && speech.includes(topItem.priceLabel), speech.slice(0, 120));
+  check("ASK launch: session open with reprompt", body?.response?.shouldEndSession === false && (body?.response?.reprompt?.outputSpeech?.text || "").length > 0);
+  check("ASK launch: card carries the storefront URL, speech does not speak it", (body?.response?.card?.content || "").includes(topItem.url) && !speech.includes("http"));
+}
+
+// --- TodaysBriefingIntent ------------------------------------------------------------
+{
+  const { body } = await ask(intentEnvelope("TodaysBriefingIntent"));
+  const speech = speechOf(body);
+  check("ASK briefing: speakable length + names Best Finds Daily", speech.length > 50 && speech.includes("Best Finds Daily"), speech.slice(0, 120));
+  check("ASK briefing: no URLs spoken", !speech.includes("http"));
+}
+
+// --- TopFindIntent ----------------------------------------------------------------------
+{
+  const { body } = await ask(intentEnvelope("TopFindIntent"));
+  const speech = speechOf(body);
+  check("ASK top find: item #1 name + price verbatim", speech.includes(topItem.name) && speech.includes(topItem.priceLabel), speech.slice(0, 120));
+  check("ASK top find: promo code spoken", speech.includes(TEMU_TOP5.promoCode));
+}
+
+// --- TemuTopFiveIntent ---------------------------------------------------------------------
+{
+  const { body } = await ask(intentEnvelope("TemuTopFiveIntent"));
+  const speech = speechOf(body);
+  check(
+    "ASK temu top 5: all five names + prices spoken",
+    TEMU_TOP5.items.every((item) => speech.includes(item.name) && speech.includes(item.priceLabel)),
+    speech.slice(0, 200)
+  );
+}
+
+// --- SearchDealsIntent: keyword ----------------------------------------------------------------
+{
+  const { body } = await ask(
+    intentEnvelope("SearchDealsIntent", { query: { name: "query", value: "smart home", confirmationStatus: "NONE" } })
+  );
+  const speech = speechOf(body);
+  check("ASK search 'smart home': verified Blink Mini + $69.99", speech.includes("Blink Mini 2K+") && speech.includes("$69.99"), speech.slice(0, 160));
+  check("ASK search: URLs only in the card", !speech.includes("http") && (body?.response?.card?.content || "").includes("muse.ai/s/deals-hub"));
+}
+
+// --- SearchDealsIntent: budget words parsed ("under fifty") --------------------------------------
+{
+  const { body } = await ask(
+    intentEnvelope("SearchDealsIntent", { query: { name: "query", value: "smart home under fifty dollars", confirmationStatus: "NONE" } })
+  );
+  const speech = speechOf(body);
+  check(
+    "ASK search 'smart home under fifty': honest no-match (only smart-home deal is $69.99)",
+    speech.includes("couldn't find any verified deals") && speech.includes("under $50"),
+    speech.slice(0, 160)
+  );
+}
+
+// --- SearchDealsIntent: budget + match ("stanley under fifty") --------------------------------------
+{
+  const { body } = await ask(
+    intentEnvelope("SearchDealsIntent", { query: { name: "query", value: "stanley under fifty dollars", confirmationStatus: "NONE" } })
+  );
+  const speech = speechOf(body);
+  check("ASK search 'stanley under fifty dollars': Stanley $40.00 found", speech.includes("Stanley Quencher tumbler") && speech.includes("$40.00"), speech.slice(0, 160));
+}
+
+// --- SearchDealsIntent: digit budget ("under 10 dollars") --------------------------------------------
+{
+  const { body } = await ask(
+    intentEnvelope("SearchDealsIntent", { query: { name: "query", value: "earrings under 10 dollars", confirmationStatus: "NONE" } })
+  );
+  const speech = speechOf(body);
+  check("ASK search 'earrings under 10 dollars': Ediseng pair at $8.99", speech.includes("Ediseng Pumpkin Dangle Earrings") && speech.includes("$8.99"), speech.slice(0, 160));
+}
+
+// --- SearchDealsIntent: no match ---------------------------------------------------------------------------
+{
+  const { body } = await ask(
+    intentEnvelope("SearchDealsIntent", { query: { name: "query", value: "zzqqx nonsense", confirmationStatus: "NONE" } })
+  );
+  const speech = speechOf(body);
+  check("ASK search no-match: honest-empty speech", speech.includes("couldn't find any verified deals"), speech.slice(0, 120));
+}
+
+// --- DealHubsIntent ------------------------------------------------------------------------------------------------
+{
+  const { body } = await ask(intentEnvelope("DealHubsIntent"));
+  const speech = speechOf(body);
+  const card = body?.response?.card?.content || "";
+  check("ASK hubs: hub names + promo code spoken", speech.includes("Master hub") && speech.includes("Deals Hub") && speech.includes(TEMU_TOP5.promoCode), speech.slice(0, 160));
+  check("ASK hubs: card carries all hub URLs", ["all-hubs-ot69dg4tutxe", "temu-finds-hub-xqp6fsx03xcgxlxq", "best-finds-daily.kit.com/profile"].every((s) => card.includes(s)));
+}
+
+// --- HelloWorldIntent ---------------------------------------------------------------------------------------------------
+{
+  const { body } = await ask(intentEnvelope("HelloWorldIntent"));
+  const speech = speechOf(body);
+  check("ASK hello: greeting + today's top find", speech.startsWith("Hello!") && speech.includes(topItem.name), speech.slice(0, 120));
+}
+
+// --- AMAZON.HelpIntent ------------------------------------------------------------------------------------------------------
+{
+  const { body } = await ask(intentEnvelope("AMAZON.HelpIntent"));
+  const speech = speechOf(body);
+  check("ASK help: lists the questions it answers", speech.includes("today's finds") && speech.includes("promo code") && speech.length > 50, speech.slice(0, 160));
+}
+
+// --- AMAZON.FallbackIntent / unknown intent --------------------------------------------------------------------------------------
+{
+  const { body } = await ask(intentEnvelope("AMAZON.FallbackIntent"));
+  const speech = speechOf(body);
+  check("ASK fallback: didn't-understand + reprompt, session open", speech.includes("didn't catch that") && body?.response?.shouldEndSession === false && (body?.response?.reprompt?.outputSpeech?.text || "").length > 0, speech.slice(0, 120));
+  const unknown = await ask(intentEnvelope("SomeUnknownIntent"));
+  check("ASK unknown intent: same fallback path", speechOf(unknown.body).includes("didn't catch that"));
+}
+
+// --- AMAZON.StopIntent / CancelIntent -------------------------------------------------------------------------------------------------
+{
+  const stop = await ask(intentEnvelope("AMAZON.StopIntent"));
+  check("ASK stop: Goodbye + session ended", speechOf(stop.body) === "Goodbye." && stop.body?.response?.shouldEndSession === true);
+  const cancel = await ask(intentEnvelope("AMAZON.CancelIntent"));
+  check("ASK cancel: Goodbye + session ended", speechOf(cancel.body) === "Goodbye." && cancel.body?.response?.shouldEndSession === true);
+}
+
+// --- SessionEndedRequest ------------------------------------------------------------------------------------------------------------
+{
+  const { res, body } = await ask(
+    askEnvelope({ type: "SessionEndedRequest", requestId: "r-end", timestamp: "2026-10-19T13:00:00Z", locale: "en-US", reason: "USER_INITIATED" })
+  );
+  check("ASK session ended: HTTP 200 + empty response object", res.status === 200 && body?.response && Object.keys(body.response).length === 0);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
