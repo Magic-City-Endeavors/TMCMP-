@@ -17,6 +17,15 @@ Entries are recorded as friction actually occurs during the build.
 - **Severity:** Low — a one-time setup cost, but it breaks fully-automated agent build pipelines.
 - **Workaround:** Prepared a single-file build of the worker (worker-singlefile.js, verified locally) for a one-paste deploy through the Cloudflare dashboard editor; the deploy itself is the one step gated on the account owner's Cloudflare sign-in, and is executed on submit day.
 - **Suggestion:** For Alexa+ hackathon participants, a documented "deploy your MCP server" quickstart with a scoped API-token walkthrough would remove the most common stall.
+- **Resolution (Oct 15, 2026):** A scoped Cloudflare API token ("Muse Deploy", Edit Workers template) was provisioned by the account owner into secure storage; deploys have run agent-side since, most recently Oct 19, 2026. The dashboard-paste fallback is retired.
+
+## Entry 4 — Embedded data snapshots go stale silently
+- **Task:** Keep the MCP server's embedded Temu Top 5 snapshot current with the daily Temu drop.
+- **Steps:** The daily drop flow refreshes the snapshot in the server's data module; a pre-submission audit (Oct 19, 2026) called the live `get_temu_top5` tool and compared its output against the drop records.
+- **Expected vs. actual:** Expected the served snapshot to match the latest completed drop (Oct 18). Actual: the server still served the Oct 16 snapshot — an earlier refresh step had reported complete without the served data changing. Nothing in the tool output flags its own age beyond a date label most clients will not check.
+- **Severity:** Medium — stale prices/items would be served to Alexa+ users and hackathon judges as "today's" finds.
+- **Workaround:** Refreshed the snapshot to the Oct 18 verified drop, rebuilt the single-file bundle, updated the protocol harness assertions to the new snapshot (21/21 pass), redeployed, and re-verified against the live endpoint in the same session.
+- **Suggestion:** MCP tool responses that embed snapshot data should carry a machine-readable freshness contract (snapshot date + max-age), so clients and auditors can detect staleness without out-of-band knowledge.
 
 ## Entry 3 — Spec version pinning is discoverable only from the fine print
 - **Task:** Confirm which MCP spec revision Alexa+ requires.
