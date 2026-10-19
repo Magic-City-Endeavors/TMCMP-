@@ -131,8 +131,8 @@ function toolText(result) {
 {
   const result = await callTool(5, "get_temu_top5");
   const text = toolText(result);
-  check("get_temu_top5: all 5 items present", ["Solar Outdoor Lights", "Electric Grooming Kit", "Impact Socket Set", "Wok Set", "Super Absorbent Drying Mat"].every((s) => text.includes(s)));
-  check("get_temu_top5: promo code + disclosure line", text.includes("Prices as of Oct 16, 2026; extra 30% off with code aln767451. #ad — I may earn a commission."));
+  check("get_temu_top5: all 5 items present", ["USB-C Flash Drive 128GB", "Men's Sweatpants 2-Pack", "1080P Portable Security Camera", "Genuine Leather Wallet Gift Box Set", "1500W Tower Space Heater"].every((s) => text.includes(s)));
+  check("get_temu_top5: promo code + disclosure line", text.includes("Prices as of Oct 18, 2026; extra 30% off with code aln767451. #ad — I may earn a commission."));
   check("get_temu_top5: storefront link", text.includes("https://temu.to/k/p3e7nhnlelp"));
 }
 
