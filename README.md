@@ -20,6 +20,19 @@ changes every day:
 Ask Alexa+ *"What are today's top finds?"*, *"Find me headphones under $200"*,
 or *"Where can I see all the deals?"* — each maps to one of these tools.
 
+## Also: a voice skill (Alexa Skills Kit)
+
+The same worker is also the endpoint for the **Best Finds Daily for Alexa+**
+custom skill: requests that arrive as Alexa Skills Kit envelopes are answered
+directly, in speech, by the same code and data as the MCP tools. The skill
+carries five custom intents — today's briefing, today's top find, the Temu
+Top 5, deal search with a budget, and the deal-hub directory — and it
+remembers the conversation: ask for deals under a budget, then ask
+*"anything cheaper?"* and the search ceiling drops on every follow-up. On
+launch it announces the biggest verified saving in the current set. It
+speaks only refresh-verified prices (currently 8 priced deals); when nothing
+verified matches, it says so honestly instead of inventing a price.
+
 ## Protocol
 
 - MCP spec **2025-11-25**, Streamable HTTP transport, JSON-RPC 2.0.
