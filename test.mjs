@@ -14,7 +14,7 @@
  */
 
 import worker from "./worker.js";
-import { TEMU_TOP5 } from "./data.js";
+import { TEMU_TOP5, DEALS } from "./data.js";
 
 const ENDPOINT = "https://mcp.bestfindsdaily.example/mcp";
 
@@ -154,6 +154,11 @@ function toolText(result) {
       "best-finds-daily.kit.com/profile",
     ].every((s) => text.includes(s))
   );
+  check("get_deal_hubs: Temu promo code present", text.includes("aln767451"));
+  check(
+    "get_deal_hubs: promo line gives the code with the 30% offer",
+    text.includes("extra 30% off with code aln767451") && text.includes("https://temu.to/k/p3e7nhnlelp")
+  );
 }
 
 // --- search_deals: keyword ---------------------------------------------------------------
@@ -204,29 +209,34 @@ async function ask(payload) {
   }
   return { res, body };
 }
-function askEnvelope(request) {
+function askEnvelope(request, attributes) {
+  const session = {
+    new: false,
+    sessionId: "amzn1.echo-api.session.test",
+    application: { applicationId: "amzn1.ask.skill.18480163-685a-4b01-8c1b-5951b6fda33b" },
+    user: { userId: "amzn1.ask.account.test" },
+  };
+  if (attributes) session.attributes = attributes;
   return {
     version: "1.0",
-    session: {
-      new: false,
-      sessionId: "amzn1.echo-api.session.test",
-      application: { applicationId: "amzn1.ask.skill.18480163-685a-4b01-8c1b-5951b6fda33b" },
-      user: { userId: "amzn1.ask.account.test" },
-    },
+    session,
     context: {},
     request,
   };
 }
-function intentEnvelope(name, slots) {
+function intentEnvelope(name, slots, attributes) {
   const intent = { name, confirmationStatus: "NONE" };
   if (slots) intent.slots = slots;
-  return askEnvelope({
-    type: "IntentRequest",
-    requestId: "amzn1.echo-api.request.test",
-    timestamp: "2026-10-19T13:00:00Z",
-    locale: "en-US",
-    intent,
-  });
+  return askEnvelope(
+    {
+      type: "IntentRequest",
+      requestId: "amzn1.echo-api.request.test",
+      timestamp: "2026-10-19T13:00:00Z",
+      locale: "en-US",
+      intent,
+    },
+    attributes
+  );
 }
 function speechOf(body) {
   return body?.response?.outputSpeech?.text || "";
@@ -369,6 +379,254 @@ const topItem = TEMU_TOP5.items[0];
     askEnvelope({ type: "SessionEndedRequest", requestId: "r-end", timestamp: "2026-10-19T13:00:00Z", locale: "en-US", reason: "USER_INITIATED" })
   );
   check("ASK session ended: HTTP 200 + empty response object", res.status === 200 && body?.response && Object.keys(body.response).length === 0);
+}
+
+// ===========================================================================
+// ASK conversation upgrade — session-aware follow-ups (multi-turn memory via
+// sessionAttributes) + the biggest-saving sentence. The console interaction
+// model is unchanged; all of this is handler-side.
+// ===========================================================================
+
+const sweepSpeeches = [];
+function track(body) {
+  const s = speechOf(body);
+  sweepSpeeches.push(s);
+  return s;
+}
+
+// (f) biggest-saving sentence — the expectation is computed from the data
+// with the same was-price derivation the adapter documents (savingsLabel
+// "was $…" / referenceLabel "List $…"), never a hardcoded product.
+function wasOf(deal) {
+  for (const label of [deal.savingsLabel, deal.referenceLabel]) {
+    const m = typeof label === "string" && label.match(/^(?:was|list)\s+\$(\d+(?:\.\d{1,2})?)/i);
+    if (m) return parseFloat(m[1]);
+  }
+  return null;
+}
+let biggest = null;
+for (const deal of DEALS) {
+  if (typeof deal.price !== "number") continue;
+  const was = wasOf(deal);
+  if (was === null || was <= deal.price) continue;
+  const saving = Math.round((was - deal.price) * 100) / 100;
+  if (!biggest || saving > biggest.saving) biggest = { deal, was, saving };
+}
+const biggestSentence = biggest
+  ? `The biggest saving right now is the ${biggest.deal.name} at ${biggest.deal.priceLabel}, down from $${biggest.was.toFixed(2)} — a saving of $${biggest.saving.toFixed(2)}.`
+  : "";
+{
+  const launch = await ask(
+    askEnvelope({ type: "LaunchRequest", requestId: "r-launch2", timestamp: "2026-10-19T13:05:00Z", locale: "en-US" })
+  );
+  const launchSpeech = track(launch.body);
+  check(
+    "(f) launch: biggest-saving sentence appended (computed from data)",
+    biggest !== null && launchSpeech.includes(biggestSentence),
+    launchSpeech.slice(-170)
+  );
+  const hubs = await ask(intentEnvelope("DealHubsIntent"));
+  const hubSpeech = track(hubs.body);
+  check(
+    "(f) hubs: biggest-saving sentence appended (computed from data)",
+    biggest !== null && hubSpeech.includes(biggestSentence),
+    hubSpeech.slice(-170)
+  );
+}
+
+// (a) a search turn stores its context --------------------------------------
+let searchAttrs50 = null;
+{
+  const { body } = await ask(
+    intentEnvelope("SearchDealsIntent", { query: { name: "query", value: "smart home under fifty dollars", confirmationStatus: "NONE" } })
+  );
+  track(body);
+  searchAttrs50 = body?.sessionAttributes;
+  check(
+    "(a) search sets attributes: lastIntent/lastQuery/lastMaxPrice",
+    searchAttrs50?.lastIntent === "search" && searchAttrs50?.lastQuery === "smart home" && searchAttrs50?.lastMaxPrice === 50,
+    JSON.stringify(searchAttrs50)
+  );
+  const unbounded = await ask(
+    intentEnvelope("SearchDealsIntent", { query: { name: "query", value: "smart home", confirmationStatus: "NONE" } })
+  );
+  track(unbounded.body);
+  check(
+    "(a) unbounded search stores lastMaxPrice null",
+    unbounded.body?.sessionAttributes?.lastIntent === "search" &&
+      unbounded.body?.sessionAttributes?.lastQuery === "smart home" &&
+      unbounded.body?.sessionAttributes?.lastMaxPrice === null,
+    JSON.stringify(unbounded.body?.sessionAttributes)
+  );
+}
+
+// (b) + (c) fallback after a search descends the ceiling, repeatedly ---------
+{
+  const fb1 = await ask(intentEnvelope("AMAZON.FallbackIntent", null, searchAttrs50));
+  const s1 = track(fb1.body);
+  check(
+    "(b) fallback after search: ceiling lowered to $30, honest no-match names it",
+    s1.includes("under $30") && s1.includes("couldn't find any verified deals"),
+    s1.slice(0, 160)
+  );
+  check(
+    "(b) fallback after search: attributes updated to the new ceiling, session open with reprompt",
+    fb1.body?.sessionAttributes?.lastIntent === "search" &&
+      fb1.body?.sessionAttributes?.lastMaxPrice === 30 &&
+      fb1.body?.response?.shouldEndSession === false &&
+      (fb1.body?.response?.reprompt?.outputSpeech?.text || "").length > 0,
+    JSON.stringify(fb1.body?.sessionAttributes)
+  );
+  const fb2 = await ask(intentEnvelope("AMAZON.FallbackIntent", null, fb1.body.sessionAttributes));
+  const s2 = track(fb2.body);
+  check(
+    "(c) second fallback descends again: $18, attributes follow",
+    s2.includes("under $18") && fb2.body?.sessionAttributes?.lastMaxPrice === 18,
+    s2.slice(0, 160)
+  );
+}
+
+// (b) fallback after a bounded match also descends ---------------------------
+{
+  const s0 = await ask(
+    intentEnvelope("SearchDealsIntent", { query: { name: "query", value: "earrings under 10 dollars", confirmationStatus: "NONE" } })
+  );
+  track(s0.body);
+  const fb = await ask(intentEnvelope("AMAZON.FallbackIntent", null, s0.body.sessionAttributes));
+  const s = track(fb.body);
+  check(
+    "(b) fallback after bounded match: ceiling $6 excludes the $8.99 pair, honest no-match",
+    s.includes("under $6") && s.includes("couldn't find any verified deals") && fb.body?.sessionAttributes?.lastMaxPrice === 6,
+    s.slice(0, 160)
+  );
+}
+
+// (b) fallback after an UNBOUNDED search: ceiling = 60% of the previous
+// result set's highest price (the documented deterministic rule) -------------
+{
+  const broad = await ask(
+    intentEnvelope("SearchDealsIntent", { query: { name: "query", value: "", confirmationStatus: "NONE" } })
+  );
+  const broadSpeech = track(broad.body);
+  const bAttrs = broad.body?.sessionAttributes;
+  check(
+    "(a) broad search: all verified deals, stores empty query + null ceiling",
+    broadSpeech.includes("8 verified deals") && bAttrs?.lastIntent === "search" && bAttrs?.lastQuery === "" && bAttrs?.lastMaxPrice === null,
+    JSON.stringify(bAttrs)
+  );
+  const fb = await ask(intentEnvelope("AMAZON.FallbackIntent", null, bAttrs));
+  const s = track(fb.body);
+  check(
+    "(b) fallback after unbounded search: ceiling is 60% of the previous top price, top item excluded, rest read out",
+    s.includes("Going cheaper") &&
+      s.includes("under $382") &&
+      s.includes("Stanley Quencher tumbler") &&
+      !s.includes(biggest.deal.name) &&
+      fb.body?.sessionAttributes?.lastMaxPrice === 382,
+    s.slice(0, 220)
+  );
+}
+
+// (e) fallback after the top find reads the next Temu items ------------------
+{
+  const tf = await ask(intentEnvelope("TopFindIntent"));
+  track(tf.body);
+  check(
+    "(e) top find stores {lastIntent: 'topfind'}",
+    tf.body?.sessionAttributes?.lastIntent === "topfind",
+    JSON.stringify(tf.body?.sessionAttributes)
+  );
+  const fb = await ask(intentEnvelope("AMAZON.FallbackIntent", null, tf.body.sessionAttributes));
+  const s = track(fb.body);
+  const second = TEMU_TOP5.items[1];
+  const third = TEMU_TOP5.items[2];
+  check(
+    "(e) fallback after top find: Temu items #2 and #3 read with prices, session open",
+    s.includes(second.name) &&
+      s.includes(second.priceLabel) &&
+      s.includes(third.name) &&
+      s.includes(third.priceLabel) &&
+      fb.body?.response?.shouldEndSession === false,
+    s.slice(0, 220)
+  );
+}
+
+// briefing / temu context storage + their follow-ups --------------------------
+{
+  const br = await ask(intentEnvelope("TodaysBriefingIntent"));
+  check(
+    "briefing stores {lastIntent: 'briefing'}",
+    br.body?.sessionAttributes?.lastIntent === "briefing",
+    JSON.stringify(br.body?.sessionAttributes)
+  );
+  const fb = await ask(intentEnvelope("AMAZON.FallbackIntent", null, br.body.sessionAttributes));
+  const s = track(fb.body);
+  check(
+    "fallback after briefing: reads the top find next",
+    s.includes(topItem.name) && s.includes(topItem.priceLabel),
+    s.slice(0, 160)
+  );
+}
+{
+  const tm = await ask(intentEnvelope("TemuTopFiveIntent"));
+  track(tm.body);
+  check(
+    "temu stores {lastIntent: 'temu'}",
+    tm.body?.sessionAttributes?.lastIntent === "temu",
+    JSON.stringify(tm.body?.sessionAttributes)
+  );
+  const fb = await ask(intentEnvelope("AMAZON.FallbackIntent", null, tm.body.sessionAttributes));
+  const s = track(fb.body);
+  check(
+    "fallback after temu: offers the briefing / budget-search next step",
+    s.includes("briefing") && s.includes("budget") && fb.body?.response?.shouldEndSession === false,
+    s.slice(0, 160)
+  );
+}
+
+// (d) fallback with NO context is byte-for-byte the old response -------------
+{
+  const { body } = await ask(intentEnvelope("AMAZON.FallbackIntent"));
+  const expected =
+    "Sorry, I didn't catch that. You can ask: what are today's finds? What's today's top find? " +
+    "What are today's Temu finds? Or find me smart home deals under fifty dollars. " +
+    "You can also ask where to shop all of Greg's hubs, or what's the promo code.";
+  check("(d) fallback with no context: speech byte-for-byte unchanged", speechOf(body) === expected, speechOf(body).slice(0, 120));
+  check(
+    "(d) fallback with no context: sessionAttributes empty",
+    JSON.stringify(body?.sessionAttributes) === "{}",
+    JSON.stringify(body?.sessionAttributes)
+  );
+}
+
+// (g) grounding sweep over every speech the new flows produced ---------------
+{
+  const allowed = new Set();
+  for (const deal of DEALS) {
+    if (typeof deal.price !== "number") continue;
+    allowed.add(deal.price);
+    const was = wasOf(deal);
+    if (was !== null && was > deal.price) {
+      allowed.add(was);
+      allowed.add(Math.round((was - deal.price) * 100) / 100);
+    }
+  }
+  for (const item of TEMU_TOP5.items) {
+    const m = item.priceLabel.match(/\$(\d+(?:\.\d{1,2})?)/);
+    if (m) allowed.add(parseFloat(m[1]));
+  }
+  // Ceilings/budgets the test itself set or the descent rule produced.
+  for (const n of [50, 30, 18, 382, 10, 6]) allowed.add(n);
+  const bad = [];
+  for (const s of sweepSpeeches) {
+    for (const m of s.matchAll(/\$(\d+(?:\.\d{1,2})?)/g)) {
+      if (!allowed.has(parseFloat(m[1]))) bad.push(m[0]);
+    }
+  }
+  check("(g) grounding: every spoken $ amount is verified data or a flow ceiling", bad.length === 0, bad.join(","));
+  const heldNames = DEALS.filter((d) => typeof d.price !== "number").map((d) => d.name);
+  const leaked = heldNames.filter((n) => sweepSpeeches.some((s) => s.includes(n)));
+  check("(g) grounding: no held (unverified) deal is named in any swept speech", leaked.length === 0, leaked.join(","));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
