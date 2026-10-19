@@ -7,59 +7,59 @@
  */
 
 // ---------------------------------------------------------------------------
-// Today's Temu Top 5 (snapshot of the daily drop, Oct 16, 2026 — verified
+// Today's Temu Top 5 (snapshot of the daily drop, Oct 18, 2026 — verified
 // live on Greg's signed-in Temu storefront that day; names, prices and sold
-// counts copied from the Oct 16 drop records, never invented. Per-product
+// counts copied from the Oct 18 drop records, never invented. Per-product
 // links were not captured for this drop, so every item points at the
 // storefront, which is Greg's canonical Temu entry point.)
 // In production this snapshot is refreshed by the daily Temu drop flow;
 // it is embedded here so the MCP server has no storage dependency.
 // ---------------------------------------------------------------------------
 export const TEMU_TOP5 = {
-  date: "2026-10-16",
-  dateLabel: "Oct 16, 2026",
+  date: "2026-10-18",
+  dateLabel: "Oct 18, 2026",
   promoCode: "aln767451",
   storefront: "https://temu.to/k/p3e7nhnlelp",
   items: [
     {
-      name: "Solar Outdoor Lights",
-      price: 6.9,
-      priceLabel: "$6.90",
-      sold: "100K sold",
+      name: "USB-C Flash Drive 128GB",
+      price: 9.04,
+      priceLabel: "$9.04",
+      sold: "60K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Electric Grooming Kit",
-      price: 10.37,
-      priceLabel: "$10.37",
-      sold: "100K sold",
+      name: "Men's Sweatpants 2-Pack",
+      price: 17.46,
+      priceLabel: "$17.46",
+      sold: "32K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Impact Socket Set",
-      price: 9.63,
-      priceLabel: "$9.63",
-      sold: "89K sold",
+      name: "1080P Portable Security Camera",
+      price: 21.77,
+      priceLabel: "$21.77",
+      sold: "17K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Wok Set",
-      price: 19.99,
-      priceLabel: "$19.99",
-      sold: "70K sold",
+      name: "Genuine Leather Wallet Gift Box Set",
+      price: 6.65,
+      priceLabel: "$6.65",
+      sold: "3.5K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Super Absorbent Drying Mat",
-      price: 4.16,
-      priceLabel: "$4.16",
-      sold: "66K sold",
+      name: "1500W Tower Space Heater",
+      price: 35.0,
+      priceLabel: "$35.00",
+      sold: "5.9K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
   ],
   // Required disclosure line, verbatim.
   disclosure:
-    "Prices as of Oct 16, 2026; extra 30% off with code aln767451. #ad — I may earn a commission.",
+    "Prices as of Oct 18, 2026; extra 30% off with code aln767451. #ad — I may earn a commission.",
 };
 
 // ---------------------------------------------------------------------------
