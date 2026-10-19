@@ -43,8 +43,11 @@ All data is real and belongs to the operating business — nothing is mocked:
   morning by the Best Finds Daily pipeline.
 - **Temu Top 5** — snapshot of the daily Temu drop (`data.js`, refreshed by
   the daily drop flow), with affiliate links and promo code.
-- **Deals** — 10 entries copied verbatim from the verified Deals Hub mapping
-  (prices and savings as mapped from the live hub; never estimated).
+- **Deals** — the full 40-entry Deals Hub catalog. Only entries whose prices
+  are verified by the refresh pipeline carry a price (currently 8); the rest
+  are stored price-free and are never returned by `search_deals`. Unverified
+  snapshot prices were removed on Oct 19, 2026 rather than served — prices
+  are as mapped from the live hub, never estimated.
 - **Hubs** — Greg's canonical link hubs.
 
 ## Files
@@ -69,7 +72,7 @@ npm test
 
 The test exercises `initialize`, `notifications/initialized`, `ping`,
 `tools/list`, `tools/call` for all four tools (including keyword and budget
-searches), an unknown method, and an unknown session id — 21 checks, PASS/FAIL
+searches), an unknown method, and an unknown session id — 67 checks, PASS/FAIL
 per check, non-zero exit on any failure.
 
 ## Develop & deploy (Cloudflare Workers, free tier)
