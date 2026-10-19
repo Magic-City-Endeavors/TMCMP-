@@ -209,6 +209,12 @@ function toolGetDealHubs() {
   for (const hub of DEAL_HUBS) {
     lines.push(`${hub.name} — ${hub.url} (${hub.description})`);
   }
+  // The ASK DealHubsIntent speaks the Temu promo code and the other tools
+  // print it; the directory carries it too so no surface drops the code.
+  lines.push(
+    "",
+    `Temu storefront (${TEMU_TOP5.storefront}) — extra 30% off with code ${TEMU_TOP5.promoCode}`
+  );
   return textResult(lines.join("\n"));
 }
 
@@ -280,13 +286,19 @@ const TOOL_HANDLERS = {
 // Speech quotes only the same verified data the tools serve (verified-only
 // deals via findDeals, the embedded Temu Top 5 snapshot); URLs are never
 // spoken — they ride in the Simple card.
+// The adapter is session-aware: deal intents store a small context object
+// in sessionAttributes (lastIntent + search terms), and FallbackIntent —
+// where an "anything cheaper?" follow-up lands, the interaction model
+// having no such intent — answers from that context (see askFallback).
+// Launch and hub-directory speech append the biggest verified saving,
+// computed from the data (see biggestSaving).
 
 const ASK_REPROMPT =
   "Ask me for today's finds, today's top find, the Temu Top 5, deals under a budget, or Greg's deal hubs.";
 const ASK_QUESTIONS =
   "You can ask: what are today's finds? What's today's top find? What are today's Temu finds? Or find me smart home deals under fifty dollars. You can also ask where to shop all of Greg's hubs, or what's the promo code.";
 
-function askResponse({ text, cardTitle, cardContent, reprompt, endSession = false }) {
+function askResponse({ text, cardTitle, cardContent, reprompt, endSession = false, sessionAttributes = {} }) {
   const response = {
     outputSpeech: { type: "PlainText", text },
     shouldEndSession: endSession,
@@ -299,7 +311,7 @@ function askResponse({ text, cardTitle, cardContent, reprompt, endSession = fals
       outputSpeech: { type: "PlainText", text: reprompt || ASK_REPROMPT },
     };
   }
-  return { version: "1.0", sessionAttributes: {}, response };
+  return { version: "1.0", sessionAttributes, response };
 }
 
 /** Strip URLs and collapse whitespace for speech, then trim to a speakable
@@ -321,6 +333,159 @@ function topFindSpeech() {
     `Today's top find is the ${item.name} at ${item.priceLabel} — ${item.sold}. ` +
     `Use Greg's code ${TEMU_TOP5.promoCode} at the Temu storefront for an extra thirty percent off.`
   );
+}
+
+/** Derive a verified deal's "was" (list) price from the data's own labels:
+ *  savingsLabel "was $9.99" or referenceLabel "List $799.99". A "Typ $…"
+ *  reference is a typical price, not a was price, and never counts.
+ *  Returns null when the entry carries no was price. */
+function wasPriceOf(deal) {
+  for (const label of [deal.savingsLabel, deal.referenceLabel]) {
+    const match = typeof label === "string" && label.match(/^(?:was|list)\s+\$(\d+(?:\.\d{1,2})?)/i);
+    if (match) return parseFloat(match[1]);
+  }
+  return null;
+}
+
+/** The verified deal with the largest (was − price) saving, computed from
+ *  the data on every call — never hardcoded. Null when no verified deal
+ *  carries a was price above its verified price. */
+function biggestSaving() {
+  let best = null;
+  for (const deal of DEALS) {
+    if (typeof deal.price !== "number") continue;
+    const was = wasPriceOf(deal);
+    if (was === null || was <= deal.price) continue;
+    const saving = Math.round((was - deal.price) * 100) / 100;
+    if (!best || saving > best.saving) best = { deal, was, saving };
+  }
+  return best;
+}
+
+function moneyLabel(value) {
+  return `$${value.toFixed(2)}`;
+}
+
+/** One spoken sentence naming the biggest verified saving right now, or ""
+ *  when no verified deal has a was price. Appended to the launch and hub
+ *  directory responses only; speech copy follows the Gemini-first pass,
+ *  grounded against the computed values. */
+function biggestSavingSentence() {
+  const best = biggestSaving();
+  if (!best) return "";
+  return (
+    ` The biggest saving right now is the ${best.deal.name} at ${best.deal.priceLabel}, ` +
+    `down from ${moneyLabel(best.was)} — a saving of ${moneyLabel(best.saving)}.`
+  );
+}
+
+/** AMAZON.FallbackIntent, session-aware. The interaction model has no
+ *  "anything cheaper?" intent, so that follow-up lands on FallbackIntent —
+ *  the handler answers it from the session context the earlier turns
+ *  stored (see the sessionAttributes set in handleAskRequest):
+ *   - after a search: re-run the same search at a lowered ceiling. The new
+ *     ceiling is 60% of the previous one, rounded to the nearest dollar;
+ *     for an unbounded search the implicit previous ceiling is the highest
+ *     price in the previous result set, and the same 60% rule applies to
+ *     it. The new ceiling is stored, so repeated follow-ups keep
+ *     descending (toward a $1 floor).
+ *   - after the top find: read Temu items #2–#3.
+ *   - after the briefing: read the top find and offer the Temu Top 5.
+ *   - after the Temu Top 5: offer the briefing / budget-search next step.
+ *  With no stored context this is exactly the long-standing
+ *  didn't-understand response, speech unchanged. Copy follows the
+ *  Gemini-first pass; values come only from findDeals / TEMU_TOP5. */
+function askFallback(attrs) {
+  const lastIntent = attrs && attrs.lastIntent;
+
+  if (lastIntent === "search" && typeof attrs.lastQuery === "string") {
+    const query = attrs.lastQuery;
+    const prevMax =
+      typeof attrs.lastMaxPrice === "number" && Number.isFinite(attrs.lastMaxPrice)
+        ? attrs.lastMaxPrice
+        : null;
+    const dealsHubUrl = DEAL_HUBS.find((h) => h.name === "Deals Hub")?.url || "";
+
+    let ceiling = null;
+    if (prevMax !== null) {
+      ceiling = Math.round(prevMax * 0.6);
+    } else {
+      const prev = findDeals(query, null);
+      if (prev.length) ceiling = Math.round(Math.max(...prev.map((d) => d.price)) * 0.6);
+    }
+
+    if (ceiling === null) {
+      // The previous search was unbounded and still empty: nothing exists
+      // at any price, so there is nothing cheaper to descend to.
+      return askResponse({
+        text:
+          `I couldn't find any verified deals matching "${query}" at any price right now, ` +
+          "so there's nothing cheaper to show. Try a broader keyword — or ask me for today's Temu Top 5.",
+        sessionAttributes: { lastIntent: "search", lastQuery: query, lastMaxPrice: null },
+      });
+    }
+
+    const nextAttrs = { lastIntent: "search", lastQuery: query, lastMaxPrice: ceiling };
+    const matches = findDeals(query, ceiling);
+    if (!matches.length) {
+      const scope = [query && `matching "${query}"`, `under $${ceiling}`].filter(Boolean).join(" ");
+      return askResponse({
+        text:
+          `I couldn't find any verified deals ${scope} right now. ` +
+          "Try a broader keyword or a higher budget — or ask me for today's Temu Top 5.",
+        cardTitle: "No verified deals found",
+        cardContent: `No verified deals ${scope} in the current Deals Hub set.\nBrowse everything: ${dealsHubUrl}`,
+        sessionAttributes: nextAttrs,
+      });
+    }
+    const spoken = matches.map((deal) => `${deal.name}, ${deal.priceLabel}`).join("; ");
+    const cardLines = matches.map(
+      (deal) => `- ${deal.name} — ${deal.priceLabel} (${deal.savingsLabel}, ${deal.referenceLabel})`
+    );
+    return askResponse({
+      text:
+        `Going cheaper — under $${ceiling} I found ${matches.length} verified ` +
+        `deal${matches.length === 1 ? "" : "s"}: ${spoken}. I've put the details on a card for you.`,
+      cardTitle: "Verified deals — cheaper",
+      cardContent: `${cardLines.join("\n")}\n\nDeals Hub: ${dealsHubUrl}\nPrices as verified in the Deals Hub mapping. #ad — I may earn a commission.`,
+      sessionAttributes: nextAttrs,
+    });
+  }
+
+  if (lastIntent === "topfind") {
+    const second = TEMU_TOP5.items[1];
+    const third = TEMU_TOP5.items[2];
+    return askResponse({
+      text:
+        `Here are the next two picks on today's Temu Top 5 list: ` +
+        `Number two: ${second.name}, ${second.priceLabel}. ` +
+        `Number three: ${third.name}, ${third.priceLabel}. ` +
+        "Ask for the Temu Top 5 to hear the whole list.",
+      cardTitle: "Today's Temu Top 5 — next picks",
+      cardContent:
+        `2. ${second.name} — ${second.priceLabel} (${second.sold})\n${second.url}\n` +
+        `3. ${third.name} — ${third.priceLabel} (${third.sold})\n${third.url}\n\nCode ${TEMU_TOP5.promoCode} for an extra 30% off. #ad — I may earn a commission.`,
+      sessionAttributes: { lastIntent: "topfind" },
+    });
+  }
+
+  if (lastIntent === "briefing") {
+    return askResponse({
+      text: `${topFindSpeech()} Or ask for the Temu Top 5 to hear today's whole list.`,
+      sessionAttributes: { lastIntent: "briefing" },
+    });
+  }
+
+  if (lastIntent === "temu") {
+    return askResponse({
+      text:
+        "That's the Temu Top 5. Want more? Ask for today's briefing, " +
+        "or tell me a budget and I'll search the verified deals.",
+      sessionAttributes: { lastIntent: "temu" },
+    });
+  }
+
+  return askResponse({ text: `Sorry, I didn't catch that. ${ASK_QUESTIONS}` });
 }
 
 const NUMBER_WORDS = {
@@ -388,6 +553,7 @@ function parseSpokenSearch(rawQuery) {
 
 async function handleAskRequest(body, env) {
   const request = body.request || {};
+  const attrs = (body.session && body.session.attributes) || {};
 
   if (request.type === "SessionEndedRequest") {
     return { version: "1.0", sessionAttributes: {}, response: {} };
@@ -398,7 +564,8 @@ async function handleAskRequest(body, env) {
     return askResponse({
       text:
         `Welcome to Best Finds Daily! ${topFindSpeech()} ` +
-        "Ask me for today's finds, the Temu Top 5, deals under a budget, or where to shop all of Greg's hubs.",
+        "Ask me for today's finds, the Temu Top 5, deals under a budget, or where to shop all of Greg's hubs." +
+        biggestSavingSentence(),
       cardTitle: "Today's top find",
       cardContent: `${item.name} — ${item.priceLabel} (${item.sold})\n${item.url}\n\nCode ${TEMU_TOP5.promoCode} for an extra 30% off. #ad — I may earn a commission.`,
     });
@@ -415,6 +582,7 @@ async function handleAskRequest(body, env) {
           text: toSpeakable(fullText),
           cardTitle: "Best Finds Daily — today's briefing",
           cardContent: toSpeakable(fullText, 6000),
+          sessionAttributes: { lastIntent: "briefing" },
         });
       }
 
@@ -424,6 +592,7 @@ async function handleAskRequest(body, env) {
           text: topFindSpeech(),
           cardTitle: "Today's top find",
           cardContent: `${item.name} — ${item.priceLabel} (${item.sold})\n${item.url}\n\nCode ${TEMU_TOP5.promoCode} for an extra 30% off. #ad — I may earn a commission.`,
+          sessionAttributes: { lastIntent: "topfind" },
         });
       }
 
@@ -439,6 +608,7 @@ async function handleAskRequest(body, env) {
             `Use Greg's code ${TEMU_TOP5.promoCode} at checkout for an extra thirty percent off.`,
           cardTitle: "Today's Temu Top 5",
           cardContent: cardText,
+          sessionAttributes: { lastIntent: "temu" },
         });
       }
 
@@ -448,6 +618,7 @@ async function handleAskRequest(body, env) {
         const { query, maxPrice } = parseSpokenSearch(rawQuery);
         const matches = findDeals(query, maxPrice);
         const dealsHubUrl = DEAL_HUBS.find((h) => h.name === "Deals Hub")?.url || "";
+        const searchAttrs = { lastIntent: "search", lastQuery: query, lastMaxPrice: maxPrice };
         if (!matches.length) {
           const scope = [
             query && `matching "${query}"`,
@@ -461,6 +632,7 @@ async function handleAskRequest(body, env) {
               "Try a broader keyword or a higher budget — or ask me for today's Temu Top 5.",
             cardTitle: "No verified deals found",
             cardContent: `No verified deals ${scope} in the current Deals Hub set.\nBrowse everything: ${dealsHubUrl}`,
+            sessionAttributes: searchAttrs,
           });
         }
         const spoken = matches
@@ -475,6 +647,7 @@ async function handleAskRequest(body, env) {
             "I've put the details on a card for you.",
           cardTitle: "Verified deals",
           cardContent: `${cardLines.join("\n")}\n\nDeals Hub: ${dealsHubUrl}\nPrices as verified in the Deals Hub mapping. #ad — I may earn a commission.`,
+          sessionAttributes: searchAttrs,
         });
       }
 
@@ -485,7 +658,8 @@ async function handleAskRequest(body, env) {
             "You can shop all of Greg's hubs from the Master hub: Amazon Finds, the Deals Hub, " +
             "Temu Finds, the Business Growth Hub, his blog, the Telegram deals channel, and the " +
             `Best Finds Daily newsletter. And the Temu promo code is ${TEMU_TOP5.promoCode}, ` +
-            "for an extra thirty percent off.",
+            "for an extra thirty percent off." +
+            biggestSavingSentence(),
           cardTitle: "Best Finds with Greg — hub directory",
           cardContent: cardText,
         });
@@ -503,6 +677,9 @@ async function handleAskRequest(body, env) {
       case "AMAZON.StopIntent":
       case "AMAZON.CancelIntent":
         return askResponse({ text: "Goodbye.", endSession: true });
+
+      case "AMAZON.FallbackIntent":
+        return askFallback(attrs);
 
       default:
         return askResponse({
