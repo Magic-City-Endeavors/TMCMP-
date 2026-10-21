@@ -7,59 +7,59 @@
  */
 
 // ---------------------------------------------------------------------------
-// Today's Temu Top 5 (snapshot of the daily drop, Oct 18, 2026 — verified
+// Today's Temu Top 5 (snapshot of the daily drop, Oct 21, 2026 — verified
 // live on Greg's signed-in Temu storefront that day; names, prices and sold
-// counts copied from the Oct 18 drop records, never invented. Per-product
+// counts copied from the Oct 21 drop records, never invented. Per-product
 // links were not captured for this drop, so every item points at the
 // storefront, which is Greg's canonical Temu entry point.)
 // In production this snapshot is refreshed by the daily Temu drop flow;
 // it is embedded here so the MCP server has no storage dependency.
 // ---------------------------------------------------------------------------
 export const TEMU_TOP5 = {
-  date: "2026-10-18",
-  dateLabel: "Oct 18, 2026",
+  date: "2026-10-21",
+  dateLabel: "Oct 21, 2026",
   promoCode: "aln767451",
   storefront: "https://temu.to/k/p3e7nhnlelp",
   items: [
     {
-      name: "USB-C Flash Drive 128GB",
-      price: 9.04,
-      priceLabel: "$9.04",
-      sold: "60K+ sold",
+      name: "Bone Conduction Headphones",
+      price: 27.8,
+      priceLabel: "$27.80",
+      sold: "46K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Men's Sweatpants 2-Pack",
-      price: 17.46,
-      priceLabel: "$17.46",
-      sold: "32K+ sold",
+      name: "Glass Food Storage 16pcs",
+      price: 11.89,
+      priceLabel: "$11.89",
+      sold: "30K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "1080P Portable Security Camera",
-      price: 21.77,
-      priceLabel: "$21.77",
-      sold: "17K+ sold",
+      name: "Electronic Klotski Brain Teaser",
+      price: 14.19,
+      priceLabel: "$14.19",
+      sold: "22K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Genuine Leather Wallet Gift Box Set",
-      price: 6.65,
-      priceLabel: "$6.65",
-      sold: "3.5K+ sold",
+      name: "Travel Backpack Large Capacity",
+      price: 25.55,
+      priceLabel: "$25.55",
+      sold: "21K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "1500W Tower Space Heater",
-      price: 35.0,
-      priceLabel: "$35.00",
-      sold: "5.9K+ sold",
+      name: "Velvet Sofa Cover Set",
+      price: 24.35,
+      priceLabel: "$24.35",
+      sold: "8.3K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
   ],
   // Required disclosure line, verbatim.
   disclosure:
-    "Prices as of Oct 18, 2026; extra 30% off with code aln767451. #ad — I may earn a commission.",
+    "Prices as of Oct 21, 2026; extra 30% off with code aln767451. #ad — I may earn a commission.",
 };
 
 // ---------------------------------------------------------------------------
@@ -137,6 +137,19 @@ export const DEAL_HUBS = [
 // REMEDIATION — Oct 19, 2026: under Gee's NO PRICELESS PROMOS rule, the
 // other 32 Oct 6 snapshot prices were stripped (`price: null`, price-bearing
 // labels removed) and search_deals serves priced entries only.
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// EXPANSION — Oct 21, 2026: four verified lotion deals added after the
+// Kiehl's entry below (count 40 -> 44 entries; verified priced entries
+// 8 -> 12). Provenance for each: Greg's own Amazon app screenshots,
+// Oct 19, 2026 (the lotion slate), now also carried in the price pipe as
+// verified (source "gee-screenshot-2026-10-19"): CeraVe Daily Moisturizing
+// Lotion $18.14 (ASIN B07RK4HST7), La Roche-Posay Lipikar AP+MAX $21.99
+// (ASIN B003QXZWYW), Aquaphor Healing Ointment 7 oz $12.97 (ASIN
+// B0107QPFBU), Aveeno Daily Moisturizing Lotion $9.97 was $14.16 (ASIN
+// B001459IEE). Associate links: https://www.amazon.com/dp/<ASIN>?tag=mcmp0b-20
+// (the DEALS schema carries no link field — the Alexa cards route shoppers
+// to the Deals Hub, as with every other entry).
 // ---------------------------------------------------------------------------
 export const DEALS = [
   {
@@ -363,6 +376,56 @@ export const DEALS = [
     referenceLabel: "Typ $72.00",
     category: "beauty",
     keywords: ["kiehl's", "kiehls", "facial cream", "moisturizer", "skincare", "beauty"],
+  },
+  {
+    name: "CeraVe Daily Moisturizing Lotion",
+    price: 18.14,
+    priceLabel: "$18.14",
+    savingsLabel: "no discount claimed",
+    referenceLabel: "Verified Oct 19, 2026",
+    category: "beauty",
+    keywords: ["cerave", "lotion", "moisturizing lotion", "moisturizer", "skincare", "skin care", "beauty", "dry skin"],
+  },
+  {
+    name: "La Roche-Posay Lipikar AP+MAX",
+    price: 21.99,
+    priceLabel: "$21.99",
+    savingsLabel: "no discount claimed",
+    referenceLabel: "Verified Oct 19, 2026",
+    category: "beauty",
+    keywords: ["la roche-posay", "lipikar", "lotion", "balm", "body cream", "moisturizer", "skincare", "skin care", "beauty", "eczema", "dry skin"],
+  },
+  {
+    name: "Aquaphor Healing Ointment 7 oz",
+    price: 12.97,
+    priceLabel: "$12.97",
+    savingsLabel: "no discount claimed",
+    referenceLabel: "Verified Oct 19, 2026",
+    category: "beauty",
+    keywords: ["aquaphor", "healing ointment", "ointment", "lotion", "skin protectant", "skincare", "skin care", "beauty", "dry skin"],
+  },
+  {
+    name: "Aveeno Daily Moisturizing Lotion",
+    price: 9.97,
+    priceLabel: "$9.97",
+    savingsLabel: "was $14.16",
+    referenceLabel: "Verified Oct 19, 2026",
+    category: "beauty",
+    keywords: ["aveeno", "lotion", "moisturizing lotion", "moisturizer", "oat", "skincare", "skin care", "beauty", "dry skin"],
+  },
+  {
+    // Added Oct 21, 2026 (submit-day staging): La Roche-Posay Cicaplast
+    // Balm B5, 1.35 oz — ASIN B0060OUV5Y, $13.69 (was $18.99), verified in
+    // the live price pipe Oct 21, 2026 (source "gee-link-capture + amazon
+    // page read 2026-10-21"). Associate link:
+    // https://www.amazon.com/dp/B0060OUV5Y?tag=mcmp0b-20
+    name: "La Roche-Posay Cicaplast Balm B5",
+    price: 13.69,
+    priceLabel: "$13.69",
+    savingsLabel: "was $18.99",
+    referenceLabel: "Verified Oct 21, 2026",
+    category: "beauty",
+    keywords: ["la roche-posay", "cicaplast", "balm", "b5", "skin repair", "soothing balm", "skincare", "skin care", "beauty", "dry skin", "irritated skin"],
   },
   {
     name: "CGK Unlimited King Size 4-piece sheet set",
