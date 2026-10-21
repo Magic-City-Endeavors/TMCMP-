@@ -132,8 +132,8 @@ function toolText(result) {
 {
   const result = await callTool(5, "get_temu_top5");
   const text = toolText(result);
-  check("get_temu_top5: all 5 items present", ["USB-C Flash Drive 128GB", "Men's Sweatpants 2-Pack", "1080P Portable Security Camera", "Genuine Leather Wallet Gift Box Set", "1500W Tower Space Heater"].every((s) => text.includes(s)));
-  check("get_temu_top5: promo code + disclosure line", text.includes("Prices as of Oct 18, 2026; extra 30% off with code aln767451. #ad — I may earn a commission."));
+  check("get_temu_top5: all 5 items present", ["Bone Conduction Headphones", "Glass Food Storage 16pcs", "Electronic Klotski Brain Teaser", "Travel Backpack Large Capacity", "Velvet Sofa Cover Set"].every((s) => text.includes(s)));
+  check("get_temu_top5: promo code + disclosure line", text.includes("Prices as of Oct 21, 2026; extra 30% off with code aln767451. #ad — I may earn a commission."));
   check("get_temu_top5: storefront link", text.includes("https://temu.to/k/p3e7nhnlelp"));
 }
 
@@ -511,7 +511,7 @@ let searchAttrs50 = null;
   const bAttrs = broad.body?.sessionAttributes;
   check(
     "(a) broad search: all verified deals, stores empty query + null ceiling",
-    broadSpeech.includes("8 verified deals") && bAttrs?.lastIntent === "search" && bAttrs?.lastQuery === "" && bAttrs?.lastMaxPrice === null,
+    broadSpeech.includes("13 verified deals") && bAttrs?.lastIntent === "search" && bAttrs?.lastQuery === "" && bAttrs?.lastMaxPrice === null,
     JSON.stringify(bAttrs)
   );
   const fb = await ask(intentEnvelope("AMAZON.FallbackIntent", null, bAttrs));
