@@ -7,59 +7,62 @@
  */
 
 // ---------------------------------------------------------------------------
-// Today's Temu Top 5 (snapshot of the daily drop, Oct 21, 2026 — verified
+// Today's Temu Top 5 (snapshot of the daily drop, Oct 22, 2026 — verified
 // live on Greg's signed-in Temu storefront that day; names, prices and sold
-// counts copied from the Oct 21 drop records, never invented. Per-product
-// links were not captured for this drop, so every item points at the
-// storefront, which is Greg's canonical Temu entry point.)
-// In production this snapshot is refreshed by the daily Temu drop flow;
-// it is embedded here so the MCP server has no storage dependency.
+// counts copied from the Oct 22 drop records
+// (~/workspace/temu-finds-promo/2026-10-22/MANIFEST.md), never invented.
+// Per-product links were not captured for this drop, so every item points
+// at the storefront, which is Greg's canonical Temu entry point.)
+// The MCP tool prefers the daily-refreshed copy in BRIEFING_KV (key
+// "temu-top5") and falls back to this embedded snapshot — whichever carries
+// the later date wins, so the tool can never serve a day-old list as
+// "today's" again (the Oct 21 snapshot did exactly that on Oct 22).
 // ---------------------------------------------------------------------------
 export const TEMU_TOP5 = {
-  date: "2026-10-21",
-  dateLabel: "Oct 21, 2026",
+  date: "2026-10-22",
+  dateLabel: "Oct 22, 2026",
   promoCode: "aln767451",
   storefront: "https://temu.to/k/p3e7nhnlelp",
   items: [
     {
-      name: "Bone Conduction Headphones",
-      price: 27.8,
-      priceLabel: "$27.80",
-      sold: "46K+ sold",
+      name: "1080P Wireless Doorbell Camera",
+      price: 14.26,
+      priceLabel: "$14.26",
+      sold: "20K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Glass Food Storage 16pcs",
-      price: 11.89,
-      priceLabel: "$11.89",
-      sold: "30K+ sold",
+      name: "5-in-1 Handheld Mixer & Immersion Blender",
+      price: 23.98,
+      priceLabel: "$23.98",
+      sold: "17K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Electronic Klotski Brain Teaser",
-      price: 14.19,
-      priceLabel: "$14.19",
-      sold: "22K+ sold",
+      name: "Super Mini HD Camera (USB Rechargeable)",
+      price: 23.76,
+      priceLabel: "$23.76",
+      sold: "12K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Travel Backpack Large Capacity",
-      price: 25.55,
-      priceLabel: "$25.55",
-      sold: "21K+ sold",
+      name: "3-in-1 Portable Charcoal Smoker Grill",
+      price: 42.31,
+      priceLabel: "$42.31",
+      sold: "11K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
     {
-      name: "Velvet Sofa Cover Set",
-      price: 24.35,
-      priceLabel: "$24.35",
-      sold: "8.3K+ sold",
+      name: "180° Flex-Head Ratcheting Wrench Set 16pc",
+      price: 35.32,
+      priceLabel: "$35.32",
+      sold: "8K+ sold",
       url: "https://temu.to/k/p3e7nhnlelp",
     },
   ],
   // Required disclosure line, verbatim.
   disclosure:
-    "Prices as of Oct 21, 2026; extra 30% off with code aln767451. #ad — I may earn a commission.",
+    "Prices as of Oct 22, 2026; extra 30% off with code aln767451. #ad — I may earn a commission.",
 };
 
 // ---------------------------------------------------------------------------
@@ -68,27 +71,27 @@ export const TEMU_TOP5 = {
 export const DEAL_HUBS = [
   {
     name: "Master hub",
-    url: "https://muse.ai/s/all-hubs-ot69dg4tutxe",
+    url: "https://all-hubs.themagiccitymeltingpot.workers.dev/",
     description: "everything in one place",
   },
   {
     name: "Amazon Finds",
-    url: "https://muse.ai/s/amazon-finds-hub-wz69dtxohxr82",
+    url: "https://amazon-finds-hub.themagiccitymeltingpot.workers.dev/",
     description: "daily Amazon finds drops",
   },
   {
     name: "Deals Hub",
-    url: "https://muse.ai/s/deals-hub-x0xz6fpjxuxxxvixt",
+    url: "https://deals-hub.themagiccitymeltingpot.workers.dev/",
     description: "40 verified deals",
   },
   {
     name: "Temu Finds",
-    url: "https://muse.ai/s/temu-finds-hub-xqp6fsx03xcgxlxq",
+    url: "https://temu-finds-hub.themagiccitymeltingpot.workers.dev/",
     description: "the daily Temu Top 5 and more",
   },
   {
     name: "Business Growth Hub",
-    url: "https://muse.ai/s/business-growth-hub-rp69xe4658jxl",
+    url: "https://business-growth-hub.themagiccitymeltingpot.workers.dev/",
     description: "tools and programs for creators and sellers",
   },
   {
@@ -151,9 +154,21 @@ export const DEAL_HUBS = [
 // (the DEALS schema carries no link field — the Alexa cards route shoppers
 // to the Deals Hub, as with every other entry).
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// PIPE SYNC — Oct 22, 2026: every priced entry below was re-checked against
+// the live price pipe (GET /prices, the verified KV map) and corrected to
+// the pipe's verified price; each priced entry now also carries its ASIN
+// so the Worker can keep applying the pipe's price at request time (see
+// applyPipePrices in worker.js). Corrections in this pass: HALLOWEEN Man
+// EDT $48.00 -> $36.00 (B009YUFD4K), Blink Mini 2K+ $69.99 -> $30.99
+// (B0F3BJJ9DJ), Stanley Quencher $40.00 -> $39.99 (B0CP9YBWMG), iRobot
+// Roomba $636.00 -> $629.99 (B0GT6BYB85), Kiehl's Ultra Facial Cream
+// $72.00 -> $54.00 (B00C6SV33M).
+// ---------------------------------------------------------------------------
 export const DEALS = [
   {
     name: "Ediseng Pumpkin Dangle Earrings",
+    asin: "B0HBQBX1XL",
     price: 8.99,
     priceLabel: "$8.99",
     savingsLabel: "was $9.99",
@@ -163,6 +178,7 @@ export const DEALS = [
   },
   {
     name: "Ediseng Spider Dangle Earrings",
+    asin: "B0HBQFCTX5",
     price: 8.99,
     priceLabel: "$8.99",
     savingsLabel: "was $9.99",
@@ -172,15 +188,17 @@ export const DEALS = [
   },
   {
     name: "HALLOWEEN Man EDT",
-    price: 48,
-    priceLabel: "$48.00",
+    asin: "B009YUFD4K",
+    price: 36,
+    priceLabel: "$36.00",
     savingsLabel: "no discount claimed",
-    referenceLabel: "Verified Oct 16, 2026",
+    referenceLabel: "Verified Oct 22, 2026",
     category: "fragrance",
     keywords: ["halloween man", "edt", "fragrance", "cologne", "men", "seasonal", "gift"],
   },
   {
     name: "FUNTASTY 15ct",
+    asin: "B0HGG7ZC2T",
     price: 9.99,
     priceLabel: "$9.99",
     savingsLabel: "no discount claimed",
@@ -190,10 +208,11 @@ export const DEALS = [
   },
   {
     name: "Blink Mini 2K+ (2-pack, white)",
-    price: 69.99,
-    priceLabel: "$69.99",
-    savingsLabel: "no discount vs list",
-    referenceLabel: "Typ $69.99",
+    asin: "B0F3BJJ9DJ",
+    price: 30.99,
+    priceLabel: "$30.99",
+    savingsLabel: "no discount claimed",
+    referenceLabel: "Verified Oct 22, 2026",
     category: "smart home",
     keywords: ["blink", "camera", "security", "mini", "smart home"],
   },
@@ -235,9 +254,10 @@ export const DEALS = [
   },
   {
     name: "Stanley Quencher tumbler",
-    price: 40,
-    priceLabel: "$40.00",
-    savingsLabel: "no discount vs list",
+    asin: "B0CP9YBWMG",
+    price: 39.99,
+    priceLabel: "$39.99",
+    savingsLabel: "no discount claimed",
     referenceLabel: "List $40.00",
     category: "drinkware",
     keywords: ["stanley", "quencher", "tumbler", "cup", "drinkware"],
@@ -361,24 +381,27 @@ export const DEALS = [
   },
   {
     name: "iRobot Roomba",
-    price: 636,
-    priceLabel: "$636.00",
-    savingsLabel: "$163 off",
+    asin: "B0GT6BYB85",
+    price: 629.99,
+    priceLabel: "$629.99",
+    savingsLabel: "$170 off",
     referenceLabel: "List $799.99",
     category: "home",
     keywords: ["irobot", "roomba", "robot vacuum", "vacuum", "cleaning", "home"],
   },
   {
     name: "Kiehl's Ultra Facial Cream",
-    price: 72,
-    priceLabel: "$72.00",
-    savingsLabel: "no discount vs list",
-    referenceLabel: "Typ $72.00",
+    asin: "B00C6SV33M",
+    price: 54,
+    priceLabel: "$54.00",
+    savingsLabel: "no discount claimed",
+    referenceLabel: "Verified Oct 22, 2026",
     category: "beauty",
     keywords: ["kiehl's", "kiehls", "facial cream", "moisturizer", "skincare", "beauty"],
   },
   {
     name: "CeraVe Daily Moisturizing Lotion",
+    asin: "B07RK4HST7",
     price: 18.14,
     priceLabel: "$18.14",
     savingsLabel: "no discount claimed",
@@ -388,6 +411,7 @@ export const DEALS = [
   },
   {
     name: "La Roche-Posay Lipikar AP+MAX",
+    asin: "B003QXZWYW",
     price: 21.99,
     priceLabel: "$21.99",
     savingsLabel: "no discount claimed",
@@ -397,6 +421,7 @@ export const DEALS = [
   },
   {
     name: "Aquaphor Healing Ointment 7 oz",
+    asin: "B0107QPFBU",
     price: 12.97,
     priceLabel: "$12.97",
     savingsLabel: "no discount claimed",
@@ -406,6 +431,7 @@ export const DEALS = [
   },
   {
     name: "Aveeno Daily Moisturizing Lotion",
+    asin: "B001459IEE",
     price: 9.97,
     priceLabel: "$9.97",
     savingsLabel: "was $14.16",
@@ -420,6 +446,7 @@ export const DEALS = [
     // page read 2026-10-21"). Associate link:
     // https://www.amazon.com/dp/B0060OUV5Y?tag=mcmp0b-20
     name: "La Roche-Posay Cicaplast Balm B5",
+    asin: "B0060OUV5Y",
     price: 13.69,
     priceLabel: "$13.69",
     savingsLabel: "was $18.99",
