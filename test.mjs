@@ -132,8 +132,8 @@ function toolText(result) {
 {
   const result = await callTool(5, "get_temu_top5");
   const text = toolText(result);
-  check("get_temu_top5: all 5 items present", ["Bone Conduction Headphones", "Glass Food Storage 16pcs", "Electronic Klotski Brain Teaser", "Travel Backpack Large Capacity", "Velvet Sofa Cover Set"].every((s) => text.includes(s)));
-  check("get_temu_top5: promo code + disclosure line", text.includes("Prices as of Oct 21, 2026; extra 30% off with code aln767451. #ad — I may earn a commission."));
+  check("get_temu_top5: all 5 items present", TEMU_TOP5.items.every((item) => text.includes(item.name) && text.includes(item.priceLabel)));
+  check("get_temu_top5: current snapshot date + disclosure line", text.includes(TEMU_TOP5.dateLabel) && text.includes(TEMU_TOP5.disclosure));
   check("get_temu_top5: storefront link", text.includes("https://temu.to/k/p3e7nhnlelp"));
 }
 
@@ -142,17 +142,17 @@ function toolText(result) {
   const result = await callTool(6, "get_deal_hubs");
   const text = toolText(result);
   check(
-    "get_deal_hubs: all 8 hubs present",
+    "get_deal_hubs: all 8 hubs present (direct-access Cloudflare copies, no muse.ai links)",
     [
-      "all-hubs-ot69dg4tutxe",
-      "amazon-finds-hub-wz69dtxohxr82",
-      "deals-hub-x0xz6fpjxuxxxvixt",
-      "temu-finds-hub-xqp6fsx03xcgxlxq",
-      "business-growth-hub-rp69xe4658jxl",
+      "all-hubs.themagiccitymeltingpot.workers.dev",
+      "amazon-finds-hub.themagiccitymeltingpot.workers.dev",
+      "deals-hub.themagiccitymeltingpot.workers.dev",
+      "temu-finds-hub.themagiccitymeltingpot.workers.dev",
+      "business-growth-hub.themagiccitymeltingpot.workers.dev",
       "bestfindswithgreg.blogspot.com",
       "t.me/Bestfindswithgreg",
       "best-finds-daily.kit.com/profile",
-    ].every((s) => text.includes(s))
+    ].every((s) => text.includes(s)) && !text.includes("muse.ai/s/")
   );
   check("get_deal_hubs: Temu promo code present", text.includes("aln767451"));
   check(
@@ -172,7 +172,7 @@ function toolText(result) {
 {
   const result = await callTool(8, "search_deals", { max_price: 50 });
   const text = toolText(result);
-  check("search_deals max_price 50: includes Stanley tumbler $40.00", text.includes("Stanley Quencher tumbler") && text.includes("$40.00"));
+  check("search_deals max_price 50: includes Stanley tumbler $39.99", text.includes("Stanley Quencher tumbler") && text.includes("$39.99"));
   check("search_deals max_price 50: excludes unverified Bose entry", !text.includes("Bose"));
 }
 
@@ -183,9 +183,12 @@ function toolText(result) {
 }
 
 // --- unknown session id -------------------------------------------------------------------------
+// Session ids are advisory (per-isolate memory can't be a global registry):
+// an unknown id is served, never rejected — rejecting it broke the standard
+// handshake across isolates (live flaw found Oct 22, 2026).
 {
-  const { res } = await rpc({ jsonrpc: "2.0", id: 10, method: "ping" }, "not-a-real-session");
-  check("unknown session id: HTTP 404", res.status === 404, `got ${res.status}`);
+  const { res, body } = await rpc({ jsonrpc: "2.0", id: 10, method: "ping" }, "not-a-real-session");
+  check("unknown session id: served (HTTP 200, ping result)", res.status === 200 && body?.result && !body.error, `got ${res.status}`);
 }
 
 // ===========================================================================
@@ -289,8 +292,8 @@ const topItem = TEMU_TOP5.items[0];
     intentEnvelope("SearchDealsIntent", { query: { name: "query", value: "smart home", confirmationStatus: "NONE" } })
   );
   const speech = speechOf(body);
-  check("ASK search 'smart home': verified Blink Mini + $69.99", speech.includes("Blink Mini 2K+") && speech.includes("$69.99"), speech.slice(0, 160));
-  check("ASK search: URLs only in the card", !speech.includes("http") && (body?.response?.card?.content || "").includes("muse.ai/s/deals-hub"));
+  check("ASK search 'smart home': verified Blink Mini + $30.99", speech.includes("Blink Mini 2K+") && speech.includes("$30.99"), speech.slice(0, 160));
+  check("ASK search: URLs only in the card", !speech.includes("http") && (body?.response?.card?.content || "").includes("deals-hub.themagiccitymeltingpot.workers.dev"));
 }
 
 // --- SearchDealsIntent: budget words parsed ("under fifty") --------------------------------------
@@ -300,8 +303,8 @@ const topItem = TEMU_TOP5.items[0];
   );
   const speech = speechOf(body);
   check(
-    "ASK search 'smart home under fifty': honest no-match (only smart-home deal is $69.99)",
-    speech.includes("couldn't find any verified deals") && speech.includes("under $50"),
+    "ASK search 'smart home under fifty': Blink Mini matches at its verified $30.99",
+    speech.includes("Blink Mini 2K+") && speech.includes("$30.99") && !speech.includes("couldn't find"),
     speech.slice(0, 160)
   );
 }
@@ -312,7 +315,7 @@ const topItem = TEMU_TOP5.items[0];
     intentEnvelope("SearchDealsIntent", { query: { name: "query", value: "stanley under fifty dollars", confirmationStatus: "NONE" } })
   );
   const speech = speechOf(body);
-  check("ASK search 'stanley under fifty dollars': Stanley $40.00 found", speech.includes("Stanley Quencher tumbler") && speech.includes("$40.00"), speech.slice(0, 160));
+  check("ASK search 'stanley under fifty dollars': Stanley $39.99 found", speech.includes("Stanley Quencher tumbler") && speech.includes("$39.99"), speech.slice(0, 160));
 }
 
 // --- SearchDealsIntent: digit budget ("under 10 dollars") --------------------------------------------
@@ -339,7 +342,7 @@ const topItem = TEMU_TOP5.items[0];
   const speech = speechOf(body);
   const card = body?.response?.card?.content || "";
   check("ASK hubs: hub names + promo code spoken", speech.includes("Master hub") && speech.includes("Deals Hub") && speech.includes(TEMU_TOP5.promoCode), speech.slice(0, 160));
-  check("ASK hubs: card carries all hub URLs", ["all-hubs-ot69dg4tutxe", "temu-finds-hub-xqp6fsx03xcgxlxq", "best-finds-daily.kit.com/profile"].every((s) => card.includes(s)));
+  check("ASK hubs: card carries all hub URLs", ["all-hubs.themagiccitymeltingpot.workers.dev", "temu-finds-hub.themagiccitymeltingpot.workers.dev", "best-finds-daily.kit.com/profile"].every((s) => card.includes(s)));
 }
 
 // --- HelloWorldIntent ---------------------------------------------------------------------------------------------------
@@ -519,10 +522,10 @@ let searchAttrs50 = null;
   check(
     "(b) fallback after unbounded search: ceiling is 60% of the previous top price, top item excluded, rest read out",
     s.includes("Going cheaper") &&
-      s.includes("under $382") &&
+      s.includes("under $378") &&
       s.includes("Stanley Quencher tumbler") &&
       !s.includes(biggest.deal.name) &&
-      fb.body?.sessionAttributes?.lastMaxPrice === 382,
+      fb.body?.sessionAttributes?.lastMaxPrice === 378,
     s.slice(0, 220)
   );
 }
@@ -616,7 +619,7 @@ let searchAttrs50 = null;
     if (m) allowed.add(parseFloat(m[1]));
   }
   // Ceilings/budgets the test itself set or the descent rule produced.
-  for (const n of [50, 30, 18, 382, 10, 6]) allowed.add(n);
+  for (const n of [50, 30, 18, 378, 10, 6]) allowed.add(n);
   const bad = [];
   for (const s of sweepSpeeches) {
     for (const m of s.matchAll(/\$(\d+(?:\.\d{1,2})?)/g)) {
