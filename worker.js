@@ -17,15 +17,19 @@
  *   - POST carries JSON-RPC messages; single-message responses are returned
  *     as plain application/json bodies.
  *   - `initialize` issues an `Mcp-Session-Id` response header; the id is
- *     honoured on later requests (unknown ids get a 404, per spec).
+ *     honoured on later requests, but it is never required.
  *   - Notifications (no `id`) are accepted with HTTP 202 and no body.
  *   - GET returns a small human/machine-readable info object for this
  *     endpoint instead of an SSE stream (this server never sends
  *     server-initiated messages, so it has nothing to stream).
- *   - Workers are stateless across isolates, so a request that arrives
- *     without a session id is still served (a documented, deliberate
- *     tolerance); a request carrying an *unknown* id is rejected, because
- *     that signals a stale or forged session rather than a fresh client.
+ *   - Workers are stateless across isolates, and module memory is
+ *     per-isolate, so an id issued by one isolate is unknown to the next.
+ *     Session ids are therefore treated as advisory: requests are served
+ *     with or without one, and an unknown id is ignored rather than
+ *     rejected (the previous reject-unknown-ids behaviour 404'd the
+ *     standard initialize -> notifications/initialized -> tools/list
+ *     handshake whenever it crossed isolates — found live Oct 22, 2026;
+ *     session tolerance is the deliberate fix).
  *   - The daily briefing is read through bindings when they exist —
  *     BRIEFING_KV (the same KV namespace the feed Worker writes) first,
  *     then the FEED_SERVICE service binding — because a plain fetch from
@@ -59,8 +63,9 @@ const CORS_HEADERS = {
   "Access-Control-Expose-Headers": "Mcp-Session-Id",
 };
 
-// Session registry. Module-scope state is per-isolate on Cloudflare; see the
-// transport notes above for why enforcement is strict only for unknown ids.
+// Session registry. Module-scope state is per-isolate on Cloudflare; ids
+// are recorded so DELETE can retire them, but membership is never enforced
+// — see the transport notes above for why unknown ids are served anyway.
 const sessions = new Set();
 
 // ---------------------------------------------------------------------------
@@ -190,18 +195,58 @@ async function toolGetDailyBriefing(args, env) {
   }
 }
 
-function toolGetTemuTop5() {
+/** Render a Temu Top 5 snapshot (embedded or KV) into tool text. */
+function renderTemuTop5(snapshot) {
   const lines = [
-    `Today's Temu Top 5 — ${TEMU_TOP5.dateLabel}`,
-    `Storefront: ${TEMU_TOP5.storefront} (code ${TEMU_TOP5.promoCode})`,
+    `Today's Temu Top 5 — ${snapshot.dateLabel}`,
+    `Storefront: ${snapshot.storefront} (code ${snapshot.promoCode})`,
     "",
   ];
-  TEMU_TOP5.items.forEach((item, i) => {
+  snapshot.items.forEach((item, i) => {
     lines.push(`${i + 1}. ${item.name} — ${item.priceLabel} (${item.sold})`);
     lines.push(`   ${item.url}`);
   });
-  lines.push("", TEMU_TOP5.disclosure);
-  return textResult(lines.join("\n"));
+  lines.push("", snapshot.disclosure);
+  return lines.join("\n");
+}
+
+/** A usable Temu snapshot: an object with a date, a dateLabel and at least
+ *  one fully-labelled item. Anything else is treated as absent. */
+function validTemuSnapshot(value) {
+  return (
+    value &&
+    typeof value === "object" &&
+    typeof value.date === "string" &&
+    typeof value.dateLabel === "string" &&
+    Array.isArray(value.items) &&
+    value.items.length > 0 &&
+    value.items.every(
+      (item) => item && typeof item.name === "string" && typeof item.priceLabel === "string"
+    )
+  );
+}
+
+/** Pick the freshest Temu Top 5 snapshot available: the daily-refreshed
+ *  copy in BRIEFING_KV (key "temu-top5", written by the daily Temu drop
+ *  flow alongside the briefing) vs the embedded snapshot in data.js —
+ *  whichever carries the later date wins, so a stale embedded snapshot can
+ *  never again be served as "today's" (the Oct 21 snapshot was served on
+ *  Oct 22 before this wiring). Falls back to the embedded snapshot on any
+ *  KV absence or error. */
+async function currentTemuTop5(env) {
+  try {
+    if (env && env.BRIEFING_KV && typeof env.BRIEFING_KV.get === "function") {
+      const stored = await env.BRIEFING_KV.get("temu-top5", "json");
+      if (validTemuSnapshot(stored) && stored.date >= TEMU_TOP5.date) return stored;
+    }
+  } catch (err) {
+    // Fall through to the embedded snapshot.
+  }
+  return TEMU_TOP5;
+}
+
+async function toolGetTemuTop5(args, env) {
+  return textResult(renderTemuTop5(await currentTemuTop5(env)));
 }
 
 function toolGetDealHubs() {
@@ -218,16 +263,65 @@ function toolGetDealHubs() {
   return textResult(lines.join("\n"));
 }
 
+/** Read the live price pipe (BRIEFING_KV key "prices:amazon" — the same
+ *  map GET /prices serves; see PRICE-PIPE.md). Returns {} on any absence
+ *  or error: the pipe is an override source, never a dependency. */
+async function loadPipeMap(env) {
+  try {
+    if (env && env.BRIEFING_KV && typeof env.BRIEFING_KV.get === "function") {
+      const stored = await env.BRIEFING_KV.get("prices:amazon", "json");
+      if (stored && typeof stored === "object" && !Array.isArray(stored)) return stored;
+    }
+  } catch (err) {
+    // Fall through with the empty map.
+  }
+  return {};
+}
+
+/** Apply the pipe's verified prices over a deals array, matching by ASIN.
+ *  Only `verified: true` pipe entries with a numeric price > 0 override;
+ *  when the pipe carries a genuine was price above the verified price, the
+ *  savings/reference labels are recomputed from it. Everything else keeps
+ *  the embedded values — which are themselves pipe-synced (see data.js),
+ *  so the served price is the pipe's price with or without KV access.
+ *  (Embedded prices had drifted from the pipe before this wiring — Blink
+ *  Mini served $69.99 against a $30.99 verified price, Oct 22, 2026.) */
+function applyPipePrices(deals, pipeMap) {
+  return deals.map((deal) => {
+    const entry = deal.asin ? pipeMap[deal.asin] : null;
+    if (!entry || entry.verified !== true) return deal;
+    if (typeof entry.price !== "number" || !(entry.price > 0)) return deal;
+    const next = {
+      ...deal,
+      price: entry.price,
+      priceLabel: `$${entry.price.toFixed(2)}`,
+    };
+    if (typeof entry.was === "number" && entry.was > entry.price) {
+      const diff = Math.round((entry.was - entry.price) * 100) / 100;
+      next.savingsLabel = diff % 1 === 0 ? `$${diff} off` : `$${diff.toFixed(2)} off`;
+      next.referenceLabel = `List $${entry.was.toFixed(2)}`;
+    }
+    return next;
+  });
+}
+
+/** The deals set a request should serve: DEALS with the live pipe applied
+ *  when KV is reachable, the (pipe-synced) embedded set otherwise. */
+async function effectiveDeals(env) {
+  const pipeMap = await loadPipeMap(env);
+  return Object.keys(pipeMap).length ? applyPipePrices(DEALS, pipeMap) : DEALS;
+}
+
 /** Shared verified-deal matcher — the single source of truth for both the
  *  search_deals MCP tool and the Alexa (ASK) adapter below. Returns the
- *  matching entries from DEALS (held entries with `price: null` never
- *  match: no verified price, never served as a deal). */
-function findDeals(rawQuery, maxPrice) {
+ *  matching entries from the given deals set (held entries with
+ *  `price: null` never match: no verified price, never served as a deal). */
+function findDeals(deals, rawQuery, maxPrice) {
   const query = typeof rawQuery === "string" ? rawQuery.trim().toLowerCase() : "";
   // Every query word must match somewhere in the deal's name, category or
   // keyword list — simple, predictable AND-matching for a small verified set.
   const words = query.split(/\s+/).filter(Boolean);
-  return DEALS.filter((deal) => {
+  return deals.filter((deal) => {
     // Held entries (price: null) have no verified price and are never served
     // as deals, regardless of any descriptive fields retained in the data.
     if (typeof deal.price !== "number") return false;
@@ -238,14 +332,14 @@ function findDeals(rawQuery, maxPrice) {
   });
 }
 
-function toolSearchDeals(args) {
+async function toolSearchDeals(args, env) {
   const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
   const maxPrice =
     typeof args.max_price === "number" && Number.isFinite(args.max_price)
       ? args.max_price
       : null;
 
-  const matches = findDeals(args.query, maxPrice);
+  const matches = findDeals(await effectiveDeals(env), args.query, maxPrice);
 
   if (!matches.length) {
     const scope = [
@@ -350,9 +444,9 @@ function wasPriceOf(deal) {
 /** The verified deal with the largest (was − price) saving, computed from
  *  the data on every call — never hardcoded. Null when no verified deal
  *  carries a was price above its verified price. */
-function biggestSaving() {
+function biggestSaving(deals = DEALS) {
   let best = null;
-  for (const deal of DEALS) {
+  for (const deal of deals) {
     if (typeof deal.price !== "number") continue;
     const was = wasPriceOf(deal);
     if (was === null || was <= deal.price) continue;
@@ -370,8 +464,8 @@ function moneyLabel(value) {
  *  when no verified deal has a was price. Appended to the launch and hub
  *  directory responses only; speech copy follows the Gemini-first pass,
  *  grounded against the computed values. */
-function biggestSavingSentence() {
-  const best = biggestSaving();
+function biggestSavingSentence(deals = DEALS) {
+  const best = biggestSaving(deals);
   if (!best) return "";
   return (
     ` The biggest saving right now is the ${best.deal.name} at ${best.deal.priceLabel}, ` +
@@ -395,7 +489,7 @@ function biggestSavingSentence() {
  *  With no stored context this is exactly the long-standing
  *  didn't-understand response, speech unchanged. Copy follows the
  *  Gemini-first pass; values come only from findDeals / TEMU_TOP5. */
-function askFallback(attrs) {
+function askFallback(attrs, deals = DEALS) {
   const lastIntent = attrs && attrs.lastIntent;
 
   if (lastIntent === "search" && typeof attrs.lastQuery === "string") {
@@ -410,7 +504,7 @@ function askFallback(attrs) {
     if (prevMax !== null) {
       ceiling = Math.round(prevMax * 0.6);
     } else {
-      const prev = findDeals(query, null);
+      const prev = findDeals(deals, query, null);
       if (prev.length) ceiling = Math.round(Math.max(...prev.map((d) => d.price)) * 0.6);
     }
 
@@ -426,7 +520,7 @@ function askFallback(attrs) {
     }
 
     const nextAttrs = { lastIntent: "search", lastQuery: query, lastMaxPrice: ceiling };
-    const matches = findDeals(query, ceiling);
+    const matches = findDeals(deals, query, ceiling);
     if (!matches.length) {
       const scope = [query && `matching "${query}"`, `under $${ceiling}`].filter(Boolean).join(" ");
       return askResponse({
@@ -554,6 +648,9 @@ function parseSpokenSearch(rawQuery) {
 async function handleAskRequest(body, env) {
   const request = body.request || {};
   const attrs = (body.session && body.session.attributes) || {};
+  // The deals set for this request: embedded data with the live verified
+  // pipe applied when KV is reachable (see effectiveDeals).
+  const deals = await effectiveDeals(env);
 
   if (request.type === "SessionEndedRequest") {
     return { version: "1.0", sessionAttributes: {}, response: {} };
@@ -565,7 +662,7 @@ async function handleAskRequest(body, env) {
       text:
         `Welcome to Best Finds Daily! ${topFindSpeech()} ` +
         "Ask me for today's finds, the Temu Top 5, deals under a budget, or where to shop all of Greg's hubs." +
-        biggestSavingSentence(),
+        biggestSavingSentence(deals),
       cardTitle: "Today's top find",
       cardContent: `${item.name} — ${item.priceLabel} (${item.sold})\n${item.url}\n\nCode ${TEMU_TOP5.promoCode} for an extra 30% off. #ad — I may earn a commission.`,
     });
@@ -601,7 +698,7 @@ async function handleAskRequest(body, env) {
         const spoken = TEMU_TOP5.items
           .map((item, i) => `${ordinals[i]}: ${item.name}, ${item.priceLabel}.`)
           .join(" ");
-        const cardText = (toolGetTemuTop5().content || []).map((c) => c.text).join("\n");
+        const cardText = renderTemuTop5(TEMU_TOP5);
         return askResponse({
           text:
             `Today's Temu Top 5 for ${TEMU_TOP5.dateLabel}. ${spoken} ` +
@@ -616,7 +713,7 @@ async function handleAskRequest(body, env) {
         const slots = (request.intent && request.intent.slots) || {};
         const rawQuery = (slots.query && slots.query.value) || "";
         const { query, maxPrice } = parseSpokenSearch(rawQuery);
-        const matches = findDeals(query, maxPrice);
+        const matches = findDeals(deals, query, maxPrice);
         const dealsHubUrl = DEAL_HUBS.find((h) => h.name === "Deals Hub")?.url || "";
         const searchAttrs = { lastIntent: "search", lastQuery: query, lastMaxPrice: maxPrice };
         if (!matches.length) {
@@ -659,7 +756,7 @@ async function handleAskRequest(body, env) {
             "Temu Finds, the Business Growth Hub, his blog, the Telegram deals channel, and the " +
             `Best Finds Daily newsletter. And the Temu promo code is ${TEMU_TOP5.promoCode}, ` +
             "for an extra thirty percent off." +
-            biggestSavingSentence(),
+            biggestSavingSentence(deals),
           cardTitle: "Best Finds with Greg — hub directory",
           cardContent: cardText,
         });
@@ -679,7 +776,7 @@ async function handleAskRequest(body, env) {
         return askResponse({ text: "Goodbye.", endSession: true });
 
       case "AMAZON.FallbackIntent":
-        return askFallback(attrs);
+        return askFallback(attrs, deals);
 
       default:
         return askResponse({
@@ -841,12 +938,12 @@ export default {
       return jsonResponse(rpcError(null, -32600, `Unsupported method: ${request.method}`), 405);
     }
 
-    // Session enforcement: an id we never issued (or already terminated)
-    // is rejected with 404 per spec; a missing id is tolerated (see notes).
+    // Session handling: ids are advisory only (see the transport notes).
+    // A request is served whether it carries a known id, an unknown id,
+    // or no id at all — rejecting unknown ids broke the standard MCP
+    // handshake whenever consecutive requests landed on different
+    // isolates (found live Oct 22, 2026).
     const sessionId = request.headers.get("Mcp-Session-Id");
-    if (sessionId && !sessions.has(sessionId)) {
-      return jsonResponse(rpcError(null, -32001, "Session not found"), 404);
-    }
 
     let body;
     try {
