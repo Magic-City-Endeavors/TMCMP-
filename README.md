@@ -25,7 +25,7 @@ or *"Where can I see all the deals?"* — each maps to one of these tools.
 - **MCP endpoint:** https://best-finds-daily-mcp.themagiccitymeltingpot.workers.dev/
   — POST JSON-RPC 2.0 messages to it; a plain GET returns endpoint info, and
   `GET /prices` on the same host returns the live verified price map.
-- **Demo video:** https://youtube.com/watch?v=0hDS7fu8ohE
+- **Demo video:** https://youtube.com/watch?v=u5MQBMvYWiM
 - **Live Alexa skills:** the Flash Briefing skill *Best Finds Daily*
   (`amzn1.ask.skill.2247ca95-5832-45a4-b666-dd1a73386fd1`, status: Live) and
   the custom skill *Best Finds Daily for Alexa+*
@@ -42,7 +42,7 @@ Top 5, deal search with a budget, and the deal-hub directory — and it
 remembers the conversation: ask for deals under a budget, then ask
 *"anything cheaper?"* and the search ceiling drops on every follow-up. On
 launch it announces the biggest verified saving in the current set. It
-speaks only refresh-verified prices (currently 13 priced deals); when nothing
+speaks only refresh-verified prices (currently 98 priced deals); when nothing
 verified matches, it says so honestly instead of inventing a price.
 
 ## Protocol
@@ -74,9 +74,11 @@ All data is real and belongs to the operating business — nothing is mocked:
   KV copy (key `temu-top5` in the shared namespace, written by the daily
   drop flow alongside the briefing) and the embedded `data.js` snapshot,
   with affiliate links and promo code.
-- **Deals** — the full Deals Hub catalog. Only entries whose prices
-  are verified by the refresh pipeline carry a price (currently 13); the rest
-  are stored price-free and are never returned by `search_deals`. Served
+- **Deals** — the full Deals Hub catalog. Every catalog entry
+  now carries a price verified by the refresh pipeline (currently 98 —
+  the full verified pipe set, expanded Oct 22, 2026); an entry without a
+  verified price is not in the catalog and is never returned by
+  `search_deals`. Served
   prices are the price pipe's verified prices, applied from KV by ASIN at
   request time over the pipe-synced embedded set. Unverified
   snapshot prices were removed on Oct 19, 2026 rather than served — prices
